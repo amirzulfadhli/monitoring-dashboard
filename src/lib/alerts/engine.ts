@@ -7,16 +7,16 @@
  * Nothing here decides an alert with AI — every verdict is a pure function of
  * observed numbers/states (see rules.ts). Each source is isolated so a failure
  * in one (e.g. GitHub) can never break evaluation of the others. No new
- * collectors are introduced, and no duplicate external calls are made just to
+ * collectors are introduced and no duplicate external calls are made just to
  * evaluate alerts: websites and system come from persisted DB rows, AI usage
- * from the usage table, and GitHub reuses its own existing single-flight fetch.
+ * from the usage table, and GitHub from its persisted snapshots (no live fetch).
  */
 import { DAY_MS, alertConfig } from "./config";
 import { readAlerts, readCounts, applyVerdict } from "./storage";
 import { readSystemSamples } from "@/lib/telemetry/storage";
 import { readLatestWebsiteChecks } from "@/lib/monitoring/storage";
 import { monitoredSites } from "@/data/monitored-sites";
-import { getGitHubResult } from "@/lib/monitoring/github";
+import { readLatestGithubSnapshots } from "@/lib/monitoring/github-snapshots";
 import { readAiUsage } from "@/lib/monitoring/ai-storage";
 import {
   evaluateSystem,
@@ -64,18 +64,20 @@ async function runEvaluation(at: number): Promise<void> {
     // Website source failure is isolated.
   }
 
-  // ---- github (reuse the monitor's own single-flight fetch) ----
+  // ---- github (evaluate from the latest persisted snapshot; no live fetch) ----
   try {
-    const res = await getGitHubResult();
-    const obs = res.repos.map((r) => ({
-      key: r.key,
-      name: r.displayName,
-      state: r.state,
-      workflowName: r.workflowName,
+    // If no GitHub snapshot has been recorded yet, evaluation is simply
+    // unavailable: an empty observation list yields no verdicts, so nothing is
+    // fabricated into a healthy or failed state.
+    const obs = readLatestGithubSnapshots().map((s) => ({
+      key: s.repoKey,
+      name: s.displayName,
+      state: s.state,
+      workflowName: s.workflowName,
     }));
     for (const v of evaluateGithub(obs)) applyVerdict(v, at);
   } catch {
-    // GitHub unavailable is isolated; no failure alert is invented here.
+    // GitHub source failure is isolated; no failure alert is invented here.
   }
 
   // ---- ai usage (persisted usage table) ----
