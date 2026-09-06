@@ -120,6 +120,76 @@ export function readRange(rangeMs: number, maxPoints: number): HistoryPoint[] {
   }
 }
 
+/** Aggregate summary of a trailing window, for the Overview "recent" panel. */
+export type HistorySummary = {
+  /** Number of persisted snapshots in the window; small values imply sparse history. */
+  points: number;
+  cpu: { avg: number | null; peak: number | null }; // CPU busy %
+  usedMem: { avg: number | null; peak: number | null }; // bytes in use
+  rxRate: number | null; // peak bytes/sec
+  txRate: number | null; // peak bytes/sec
+};
+
+const EMPTY_SUMMARY: HistorySummary = {
+  points: 0,
+  cpu: { avg: null, peak: null },
+  usedMem: { avg: null, peak: null },
+  rxRate: null,
+  txRate: null,
+};
+
+/**
+ * Compute a 24h-style summary over the trailing window ending now: average and
+ * peak CPU/memory, plus peak network rates. Each metric is reduced only over
+ * rows that recorded it. Returns EMPTY_SUMMARY on no data or DB failure —
+ * never throws.
+ */
+export function readSummary(rangeMs: number): HistorySummary {
+  const d = openDb();
+  if (!d) return EMPTY_SUMMARY;
+  const since = Date.now() - rangeMs;
+  try {
+    const rows = d
+      .prepare(
+        `SELECT cpuPct, usedMem, rxRate, txRate
+           FROM history
+          WHERE ts >= ?
+          ORDER BY ts ASC`,
+      )
+      .all(since) as {
+      cpuPct: number | null;
+      usedMem: number | null;
+      rxRate: number | null;
+      txRate: number | null;
+    }[];
+    if (rows.length === 0) return EMPTY_SUMMARY;
+
+    const cpu: number[] = [];
+    const mem: number[] = [];
+    let peakRx = 0;
+    let peakTx = 0;
+    for (const r of rows) {
+      if (r.cpuPct != null) cpu.push(r.cpuPct);
+      if (r.usedMem != null) mem.push(r.usedMem);
+      if (r.rxRate != null) peakRx = Math.max(peakRx, r.rxRate);
+      if (r.txRate != null) peakTx = Math.max(peakTx, r.txRate);
+    }
+    const avg = (a: number[]) =>
+      a.length ? a.reduce((s, v) => s + v, 0) / a.length : null;
+    const peak = (a: number[]) => (a.length ? Math.max(...a) : null);
+
+    return {
+      points: rows.length,
+      cpu: { avg: avg(cpu), peak: peak(cpu) },
+      usedMem: { avg: avg(mem), peak: peak(mem) },
+      rxRate: peakRx || null,
+      txRate: peakTx || null,
+    };
+  } catch {
+    return EMPTY_SUMMARY;
+  }
+}
+
 /** Collapse runs of points into averaged buckets when there are too many. */
 function downsample(
   rows: { ts: number; rxRate: number; txRate: number }[],

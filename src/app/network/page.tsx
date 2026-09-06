@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import type { TelemetrySnapshot } from "@/lib/telemetry";
+import { useLiveTelemetry } from "@/lib/use-live-telemetry";
 
 const REFRESH_MS = 3000;
 const LIVE_POINTS = 60; // ~3 minutes of live readings at the poll rate
@@ -171,49 +171,26 @@ function ChartState({ message }: { message: string }) {
 
 export default function NetworkPage() {
   const [range, setRange] = useState<RangeKey>("Live");
-  const [snap, setSnap] = useState<TelemetrySnapshot | null>(null);
-  const [unavailable, setUnavailable] = useState(false);
   const liveRef = useRef<Point[]>([]);
   const [, forceTick] = useState(0);
+
+  const { snapshot, unavailable } = useLiveTelemetry({
+    refreshMs: REFRESH_MS,
+    onSnapshot: (data) => {
+      const net = data.network;
+      if (net && isFinite(net.rxRate) && isFinite(net.txRate)) {
+        liveRef.current = [
+          ...liveRef.current.slice(-(LIVE_POINTS - 1)),
+          { ts: data.collectedAt, rxRate: net.rxRate, txRate: net.txRate },
+        ];
+        forceTick((t) => t + 1);
+      }
+    },
+  });
 
   // History state (only fetched when not on Live).
   const [hist, setHist] = useState<{ range: RangeKey; points: Point[] } | null>(null);
   const [histState, setHistState] = useState<"idle" | "loading" | "error">("idle");
-
-  // Live telemetry poll: drives the stat tiles, the live chart, and (via the
-  // API) ~30s snapshot persistence. Runs regardless of the selected range.
-  useEffect(() => {
-    let cancelled = false;
-    const load = async () => {
-      try {
-        const res = await fetch("/api/telemetry", { cache: "no-store" });
-        if (res.ok) {
-          const data = (await res.json()) as TelemetrySnapshot;
-          if (cancelled) return;
-          setSnap(data);
-          setUnavailable(false);
-          const net = data.network;
-          if (net && isFinite(net.rxRate) && isFinite(net.txRate)) {
-            liveRef.current = [
-              ...liveRef.current.slice(-(LIVE_POINTS - 1)),
-              { ts: data.collectedAt, rxRate: net.rxRate, txRate: net.txRate },
-            ];
-            forceTick((t) => t + 1);
-          }
-        } else if (!cancelled) {
-          setUnavailable(true);
-        }
-      } catch {
-        if (!cancelled) setUnavailable(true);
-      }
-    };
-    load();
-    const id = setInterval(load, REFRESH_MS);
-    return () => {
-      cancelled = true;
-      clearInterval(id);
-    };
-  }, []);
 
   // Historical fetch whenever a non-live range is selected.
   useEffect(() => {
@@ -245,8 +222,8 @@ export default function NetworkPage() {
     };
   }, [range]);
 
-  const net = snap?.network ?? null;
-  const up = unavailable || !snap || !net;
+  const net = snapshot?.network ?? null;
+  const up = unavailable || !snapshot || !net;
 
   const status: { label: string; tone: Tone } = up
     ? { label: "Unavailable", tone: "critical" }
@@ -336,9 +313,9 @@ export default function NetworkPage() {
           <p className="mt-1">
             Link rates are machine throughput, not internet speed.
           </p>
-          {snap && (
+          {snapshot && (
             <p className="mt-1 font-mono tabular-nums">
-              Updated {new Date(snap.collectedAt).toLocaleTimeString()}
+              Updated {new Date(snapshot.collectedAt).toLocaleTimeString()}
             </p>
           )}
         </div>
