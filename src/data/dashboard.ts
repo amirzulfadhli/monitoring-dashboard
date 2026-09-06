@@ -10,7 +10,7 @@ export const navSections: NavItem[] = [
   { label: "Overview", href: "/" },
   { label: "Network", href: "/network" },
   { label: "APIs" },
-  { label: "AI Usage" },
+  { label: "AI Usage", href: "/ai-usage" },
   { label: "Websites", href: "/websites" },
   { label: "GitHub", href: "/github" },
   { label: "Projects" },
