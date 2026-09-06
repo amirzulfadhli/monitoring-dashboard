@@ -1,4 +1,5 @@
-import { monitoredRepos, type MonitoredRepo } from "@/data/monitored-repos";
+import { getEnabledRepos } from "@/lib/settings/service";
+import { type MonitoredRepo } from "@/data/monitored-repos";
 
 // A bounded timeout so a hung upstream never stalls a poll indefinitely.
 const HTTP_TIMEOUT_MS = 8000;
@@ -307,7 +308,7 @@ async function collect(): Promise<GitHubResult> {
   const checkedAtMs = Date.now();
 
   const repos = await Promise.all(
-    monitoredRepos.map((cfg) => snapshotRepo(cfg, token, rate)),
+    getEnabledRepos().map((cfg) => snapshotRepo(cfg, token, rate)),
   );
 
   const counts = { monitored: repos.length, healthy: 0, attention: 0, running: 0, unavailable: 0 };

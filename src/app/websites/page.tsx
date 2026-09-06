@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import type { WebsiteHistory } from "@/app/api/websites/route";
 import type { CheckResult, WebsiteState } from "@/lib/monitoring/websites";
 
@@ -211,10 +212,10 @@ export default function WebsitesPage() {
 
         {data.counts.total === 0 && (
           <p className="text-sm text-zinc-500 dark:text-zinc-400">
-            No monitored targets configured. Add entries to{" "}
-            <code className="rounded bg-zinc-100 px-1 py-0.5 font-mono text-xs dark:bg-zinc-800">
-              src/data/monitored-sites.ts
-            </code>
+            No monitored targets configured. Add websites under{" "}
+            <Link href="/settings" className="underline decoration-zinc-300 underline-offset-2 dark:decoration-zinc-700">
+              Settings
+            </Link>
             .
           </p>
         )}

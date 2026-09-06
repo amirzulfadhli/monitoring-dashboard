@@ -1,11 +1,12 @@
 /**
- * Configured GitHub repositories for health monitoring.
+ * Initial GitHub repositories for health monitoring.
  *
- * V1 has no settings UI — edit this list to add or remove repositories. Only
- * repositories listed here are ever queried; the GitHub API never accepts
- * user-supplied owner/repo names from the browser. Configuration is isolated
- * from the monitoring logic so more repositories can be added later without
- * touching it.
+ * This list is now SEED DATA ONLY: on first run the settings layer migrates it
+ * into the persisted `monitored_repositories` table (see src/lib/settings/storage.ts),
+ * which is then the single source of truth for what gets queried. Editing this
+ * file no longer changes monitoring once settings have been seeded — use the
+ * /settings UI instead. It remains the fallback set when the settings DB is
+ * unavailable.
  */
 export type MonitoredRepo = {
   owner: string;

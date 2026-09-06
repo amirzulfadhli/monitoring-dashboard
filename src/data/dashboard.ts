@@ -20,5 +20,5 @@ export const navSections: NavItem[] = [
   { label: "Security" },
   { label: "Alerts", href: "/alerts" },
   { label: "History", href: "/history" },
-  { label: "Settings" },
+  { label: "Settings", href: "/settings" },
 ];

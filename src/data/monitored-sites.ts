@@ -1,8 +1,12 @@
 /**
- * Configured HTTP/HTTPS targets for website monitoring.
+ * Initial HTTP/HTTPS targets for website monitoring.
  *
- * V1 has no settings UI — edit this list to add or remove targets. Only sites
- * listed here are ever checked; the API never accepts user-supplied URLs.
+ * This list is now SEED DATA ONLY: on first run the settings layer migrates it
+ * into the persisted `monitored_websites` table (see src/lib/settings/storage.ts),
+ * which is then the single source of truth for what gets checked. Editing this
+ * file no longer changes monitoring once settings have been seeded — use the
+ * /settings UI instead. It remains the fallback set when the settings DB is
+ * unavailable.
  */
 export type MonitoredSite = {
   id: string;

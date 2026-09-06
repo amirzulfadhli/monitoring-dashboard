@@ -13,6 +13,7 @@
 
 import { monitoredSites } from "@/data/monitored-sites";
 import { monitoredRepos } from "@/data/monitored-repos";
+import { listRepositories, listWebsites } from "@/lib/settings/storage";
 import { readAlerts } from "@/lib/alerts/storage";
 import type { AlertRecord } from "@/lib/alerts/model";
 import { readWebsiteChecks } from "@/lib/monitoring/storage";
@@ -153,11 +154,17 @@ function ev(
   };
 }
 
+// Name lookups prefer the persisted settings store so renames reflect in the
+// timeline; the source-seeded arrays remain a fallback for removed targets whose
+// history still exists, and when the settings DB is unavailable.
 const siteName = (targetId: string) =>
-  monitoredSites.find((s) => s.id === targetId)?.name ?? targetId;
+  listWebsites()?.find((w) => w.id === targetId)?.name ??
+  monitoredSites.find((s) => s.id === targetId)?.name ??
+  targetId;
 
 const repoDisplay = (repoKey: string, snap: StoredGithubSnapshot) =>
   snap.displayName ||
+  listRepositories()?.find((r) => `${r.owner}/${r.repo}` === repoKey)?.displayName ||
   monitoredRepos.find((r) => `${r.owner}/${r.repo}` === repoKey)?.displayName ||
   repoKey;
 

@@ -1,4 +1,5 @@
-import { monitoredSites, type MonitoredSite } from "@/data/monitored-sites";
+import { getEnabledSites } from "@/lib/settings/service";
+import { type MonitoredSite } from "@/data/monitored-sites";
 import {
   persistWebsiteCheck,
   type WebsiteCheckRow,
@@ -140,8 +141,11 @@ async function checkSite(site: MonitoredSite): Promise<CheckResult> {
  */
 async function checkAllSites(): Promise<CheckResult[]> {
   const checkedAt = Date.now();
+  // Only currently-enabled persisted targets are ever checked. Removal from
+  // Settings stops future checks without touching stored website_checks.
+  const targets = getEnabledSites();
   const results = await Promise.all(
-    monitoredSites.map(async (site) => {
+    targets.map(async (site) => {
       try {
         return await checkSite(site);
       } catch {

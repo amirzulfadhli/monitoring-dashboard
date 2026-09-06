@@ -11,11 +11,16 @@
  * evaluate alerts: websites and system come from persisted DB rows, AI usage
  * from the usage table, and GitHub from its persisted snapshots (no live fetch).
  */
-import { DAY_MS, alertConfig } from "./config";
+import { DAY_MS } from "./config";
+import {
+  getAiSettings,
+  getEnabledSites,
+  getEnabledRepos,
+  getSystemSettings,
+} from "@/lib/settings/service";
 import { readAlerts, readCounts, applyVerdict } from "./storage";
 import { readSystemSamples } from "@/lib/telemetry/storage";
 import { readLatestWebsiteChecks } from "@/lib/monitoring/storage";
-import { monitoredSites } from "@/data/monitored-sites";
 import { readLatestGithubSnapshots } from "@/lib/monitoring/github-snapshots";
 import { readAiUsage } from "@/lib/monitoring/ai-storage";
 import {
@@ -41,24 +46,36 @@ function now() {
 
 /** Evaluate every source once, applying verdicts. Failure-isolated per source. */
 async function runEvaluation(at: number): Promise<void> {
+  // Thresholds / budgets are read fresh each evaluation from persisted settings
+  // (safe defaults when the settings DB is unavailable) so edits apply without a
+  // server restart. minSamples & lookback come back inside system.
+  const system = getSystemSettings();
+
   // ---- system (persisted history; no collector, no OS call) ----
   try {
-    const samples = readSystemSamples(alertConfig.system.lookbackMs);
-    for (const v of evaluateSystem(samples, alertConfig.system)) applyVerdict(v, at);
+    const samples = readSystemSamples(system.lookbackMs);
+    for (const v of evaluateSystem(samples, system)) applyVerdict(v, at);
   } catch {
     // System source failure must not break the others.
   }
 
   // ---- websites (persisted latest checks; no duplicate fetch) ----
   try {
-    const nameOf = new Map(monitoredSites.map((s) => [s.id, s.name]));
+    // Only currently-enabled targets are evaluated: removing a site from
+    // Settings stops its future checks, and stale "down" history must not keep
+    // raising an alert for a site that is no longer monitored.
+    const enabled = getEnabledSites();
+    const enabledIds = new Set(enabled.map((s) => s.id));
+    const nameOf = new Map(enabled.map((s) => [s.id, s.name]));
     const checks = readLatestWebsiteChecks();
-    const obs = checks.map((c) => ({
-      targetId: c.targetId,
-      name: nameOf.get(c.targetId) ?? c.targetId,
-      state: c.state,
-      latencyMs: c.latencyMs,
-    }));
+    const obs = checks
+      .filter((c) => enabledIds.has(c.targetId))
+      .map((c) => ({
+        targetId: c.targetId,
+        name: nameOf.get(c.targetId) ?? c.targetId,
+        state: c.state,
+        latencyMs: c.latencyMs,
+      }));
     for (const v of evaluateWebsites(obs)) applyVerdict(v, at);
   } catch {
     // Website source failure is isolated.
@@ -68,13 +85,17 @@ async function runEvaluation(at: number): Promise<void> {
   try {
     // If no GitHub snapshot has been recorded yet, evaluation is simply
     // unavailable: an empty observation list yields no verdicts, so nothing is
-    // fabricated into a healthy or failed state.
-    const obs = readLatestGithubSnapshots().map((s) => ({
-      key: s.repoKey,
-      name: s.displayName,
-      state: s.state,
-      workflowName: s.workflowName,
-    }));
+    // fabricated into a healthy or failed state. Disabled/removed repositories
+    // are excluded so they stop producing alerts.
+    const enabled = new Set(getEnabledRepos().map((r) => `${r.owner}/${r.repo}`));
+    const obs = readLatestGithubSnapshots()
+      .filter((s) => enabled.has(s.repoKey))
+      .map((s) => ({
+        key: s.repoKey,
+        name: s.displayName,
+        state: s.state,
+        workflowName: s.workflowName,
+      }));
     for (const v of evaluateGithub(obs)) applyVerdict(v, at);
   } catch {
     // GitHub source failure is isolated; no failure alert is invented here.
@@ -82,8 +103,9 @@ async function runEvaluation(at: number): Promise<void> {
 
   // ---- ai usage (persisted usage table) ----
   try {
+    const ai = getAiSettings();
     const usage = readAiUsage(DAY_MS);
-    for (const v of evaluateAi({ totalTokens: usage.totalTokens, costUsd: usage.estimatedCostUsd }, alertConfig.ai))
+    for (const v of evaluateAi({ totalTokens: usage.totalTokens, costUsd: usage.estimatedCostUsd }, ai))
       applyVerdict(v, at);
   } catch {
     // AI usage failure is isolated.
@@ -116,9 +138,9 @@ export function listAlerts(status: "active" | "resolved" | "all") {
 export function ruleEnabled(ruleId: string): boolean {
   switch (ruleId) {
     case "ai_token_budget":
-      return alertConfig.ai.tokenBudget24h != null;
+      return getAiSettings().tokenBudget24h != null;
     case "ai_cost_budget":
-      return alertConfig.ai.costBudget24hUsd != null;
+      return getAiSettings().costBudget24hUsd != null;
     default:
       return true;
   }
