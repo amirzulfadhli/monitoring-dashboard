@@ -162,11 +162,12 @@ export default function AlertsPage() {
                   <th className="px-4 py-2.5 font-medium">
                     {view === "history" ? "Resolved" : "Last seen"}
                   </th>
+                  <th className="px-4 py-2.5" aria-label="Explain" />
                 </tr>
               </thead>
               <tbody>
                 {alerts.map((a) => (
-                  <Row key={a.fingerprint} a={a} view={view} />
+                  <ExplainRow key={a.fingerprint} a={a} />
                 ))}
               </tbody>
             </table>
@@ -197,29 +198,167 @@ export default function AlertsPage() {
   );
 }
 
-function Row({ a, view }: { a: AlertRecord; view: View }) {
-  const label = a.severity;
+/** Typed shapes for the /api/alerts/[id]/explain response. */
+type ExplainRef = { eventId: string; relevance: string };
+type ExplainPanel = {
+  summary: string;
+  likelyCause: string | null;
+  confidence: "low" | "medium" | "high";
+  evidence: ExplainRef[];
+  checks: string[];
+};
+type ExplainOk = {
+  ok: true;
+  cached: boolean;
+  createdAt: number;
+  evidenceCount: number;
+  explanation: ExplainPanel;
+  model: string | null;
+};
+type ExplainErr = { ok: false; reason: string; message: string };
+
+const confTone: Record<ExplainPanel["confidence"], string> = {
+  low: "text-zinc-500 dark:text-zinc-400",
+  medium: "text-amber-600 dark:text-amber-400",
+  high: "text-emerald-600 dark:text-emerald-400",
+};
+
+function ExplainRow({ a }: { a: AlertRecord }) {
+  const [busy, setBusy] = useState(false);
+  const [panel, setPanel] = useState<ExplainPanel | null>(null);
+  const [meta, setMeta] = useState<{ createdAt: number; cached: boolean; model: string | null } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const explain = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/alerts/${encodeURIComponent(a.fingerprint)}/explain`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}), // ignored by the server — the action is fixed
+        cache: "no-store",
+      });
+      const data = (await res.json()) as ExplainOk | ExplainErr;
+      if (data.ok) {
+        setPanel(data.explanation);
+        setMeta({
+          createdAt: data.createdAt,
+          cached: data.cached,
+          model: data.model,
+        });
+      } else {
+        setError(data.message);
+        setPanel(null);
+        setMeta(null);
+      }
+    } catch {
+      setError("Explanation request failed. The alert remains visible.");
+      setPanel(null);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
-    <tr className="border-b border-zinc-100 last:border-0 dark:border-zinc-900">
-      <td className="px-4 py-3">
-        <span className={`inline-flex items-center gap-1.5 capitalize text-xs ${sevText[label]}`}>
-          <span className={`h-2 w-2 rounded-full ${sevDot[label]}`} aria-hidden="true" />
-          {label}
-        </span>
-      </td>
-      <td className="px-4 py-3 text-xs capitalize text-zinc-500 dark:text-zinc-400">
-        {sourceLabel[a.source] ?? a.source}
-      </td>
-      <td className="px-4 py-3 font-medium text-zinc-900 dark:text-zinc-50">{a.title}</td>
-      <td className="max-w-[320px] truncate px-4 py-3 text-xs text-zinc-500 dark:text-zinc-400" title={a.message}>
-        {a.message}
-      </td>
-      <td className="px-4 py-3 font-mono text-xs text-zinc-400 dark:text-zinc-500">
-        {fmtWhen(a.firstSeenAt)}
-      </td>
-      <td className="px-4 py-3 font-mono text-xs text-zinc-400 dark:text-zinc-500">
-        {view === "history" && a.resolvedAt != null ? fmtWhen(a.resolvedAt) : fmtWhen(a.lastSeenAt)}
-      </td>
-    </tr>
+    <>
+      <tr className="border-b border-zinc-100 last:border-0 dark:border-zinc-900">
+        <td className="px-4 py-3">
+          <span className={`inline-flex items-center gap-1.5 capitalize text-xs ${sevText[a.severity]}`}>
+            <span className={`h-2 w-2 rounded-full ${sevDot[a.severity]}`} aria-hidden="true" />
+            {a.severity}
+          </span>
+        </td>
+        <td className="px-4 py-3 text-xs capitalize text-zinc-500 dark:text-zinc-400">
+          {sourceLabel[a.source] ?? a.source}
+        </td>
+        <td className="px-4 py-3 font-medium text-zinc-900 dark:text-zinc-50">{a.title}</td>
+        <td className="max-w-[320px] truncate px-4 py-3 text-xs text-zinc-500 dark:text-zinc-400" title={a.message}>
+          {a.message}
+        </td>
+        <td className="px-4 py-3 font-mono text-xs text-zinc-400 dark:text-zinc-500">
+          {fmtWhen(a.firstSeenAt)}
+        </td>
+        <td className="px-4 py-3 font-mono text-xs text-zinc-400 dark:text-zinc-500">
+          {a.resolvedAt != null ? fmtWhen(a.resolvedAt) : fmtWhen(a.lastSeenAt)}
+        </td>
+        <td className="px-4 py-3 text-right">
+          <button
+            onClick={explain}
+            disabled={busy}
+            className="rounded border border-zinc-200 px-2 py-1 text-[11px] font-medium text-zinc-500 hover:bg-zinc-100 hover:text-zinc-800 disabled:opacity-50 dark:border-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-800/60 dark:hover:text-zinc-200"
+          >
+            {busy ? "Explaining…" : "Explain"}
+          </button>
+        </td>
+      </tr>
+      {(panel || error || busy) && (
+        <tr className="border-b border-zinc-100 bg-zinc-50/50 last:border-0 dark:border-zinc-900 dark:bg-zinc-900/30">
+          <td colSpan={7} className="px-4 py-3">
+            {busy && !panel ? (
+              <p className="text-xs text-zinc-400 dark:text-zinc-500">Analyzing nearby DevPulse evidence…</p>
+            ) : panel ? (
+              <div className="space-y-2 text-sm">
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                  <p className="text-[11px] uppercase tracking-wider text-zinc-400 dark:text-zinc-500">
+                    AI-generated · grounded in DevPulse evidence
+                  </p>
+                  {meta && (
+                    <p className="text-[11px] text-zinc-400 dark:text-zinc-500">
+                      {fmtWhen(meta.createdAt)}
+                      {meta.cached ? " · cached" : ""}
+                      {meta.model ? ` · ${meta.model}` : ""}
+                    </p>
+                  )}
+                </div>
+                <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                  <span className={`font-semibold capitalize ${confTone[panel.confidence]}`}>
+                    {panel.confidence} confidence
+                  </span>{" "}
+                  — {panel.summary}
+                </p>
+                {panel.likelyCause && (
+                  <p className="text-xs text-zinc-700 dark:text-zinc-300">
+                    <span className="font-medium">Likely cause: </span>
+                    {panel.likelyCause}
+                  </p>
+                )}
+                {panel.evidence.length > 0 && (
+                  <div>
+                    <p className="mb-1 text-[11px] font-medium uppercase tracking-wider text-zinc-400 dark:text-zinc-500">
+                      Supporting evidence
+                    </p>
+                    <ul className="space-y-1">
+                      {panel.evidence.map((e, i) => (
+                        <li key={i} className="text-xs text-zinc-500 dark:text-zinc-400">
+                          <span className="font-mono text-[11px] text-zinc-400 dark:text-zinc-500">
+                            {e.eventId}
+                          </span>{" "}
+                          — {e.relevance}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                {panel.checks.length > 0 && (
+                  <div>
+                    <p className="mb-1 text-[11px] font-medium uppercase tracking-wider text-zinc-400 dark:text-zinc-500">
+                      Recommended checks
+                    </p>
+                    <ul className="list-disc space-y-0.5 pl-4 text-xs text-zinc-600 dark:text-zinc-400">
+                      {panel.checks.map((c, i) => (
+                        <li key={i}>{c}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <p className="text-xs text-red-600 dark:text-red-400">{error}</p>
+            )}
+          </td>
+        </tr>
+      )}
+    </>
   );
 }

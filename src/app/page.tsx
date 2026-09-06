@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useLiveTelemetry } from "@/lib/use-live-telemetry";
+import { IntelligencePanel } from "@/components/intelligence-panel";
 
 const REFRESH_MS = 4000; // live telemetry poll (~3–5s requested)
 const WARN_PCT = 90; // CPU or memory % at/above this flags a Warning status
@@ -324,6 +325,9 @@ export default function OverviewPage() {
           ) : null}
         </div>
       </section>
+
+      {/* Intelligence (DeepSeek operational brief — only runs on demand) */}
+      <IntelligencePanel />
     </div>
   );
 }
