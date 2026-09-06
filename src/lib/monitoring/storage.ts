@@ -1,6 +1,7 @@
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { mkdirSync } from "node:fs";
+import { maybePruneExpired } from "../maintenance";
 
 /**
  * Persistence for website check history. Mirrors the telemetry storage design:
@@ -45,6 +46,11 @@ function openDb(): DatabaseSync | null {
         error TEXT,
         PRIMARY KEY (ts, targetId)
       );
+      -- ts is the leading PK column, so range reads + retention already scan by
+      -- timestamp. This secondary index serves latest-per-target reads and any
+      -- per-target time queries (alert evaluation / history) without a full scan.
+      CREATE INDEX IF NOT EXISTS idx_website_checks_target_ts
+        ON website_checks(targetId, ts);
     `);
     db = d;
     return d;
@@ -57,6 +63,8 @@ function openDb(): DatabaseSync | null {
 export function persistWebsiteCheck(row: WebsiteCheckRow): boolean {
   const d = openDb();
   if (!d) return false;
+  // Opportunistic retention (guarded to ~once/day) rides the write path.
+  maybePruneExpired();
   try {
     d.prepare(
       `INSERT OR IGNORE INTO website_checks

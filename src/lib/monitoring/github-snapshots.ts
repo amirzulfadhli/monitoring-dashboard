@@ -2,6 +2,7 @@ import path from "node:path";
 import { mkdirSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import type { RepoSnapshot } from "./github";
+import { maybePruneExpired } from "../maintenance";
 
 /**
  * Persistence for compact GitHub repository-health snapshots. Mirrors the other
@@ -101,6 +102,10 @@ function openDb(): DatabaseSync | null {
       );
       CREATE INDEX IF NOT EXISTS idx_github_snapshots_repo_ts
         ON github_snapshots(repoKey, ts);
+      -- Cross-repo trailing-window reads (ts >= ?) and retention prune by ts,
+      -- which the (repoKey, ts) keys cannot serve without a full scan.
+      CREATE INDEX IF NOT EXISTS idx_github_snapshots_ts
+        ON github_snapshots(ts);
     `);
     db = d;
     return d;
@@ -140,6 +145,10 @@ function toSnapshot(r: Row): StoredGithubSnapshot {
 export function persistGithubSnapshots(repos: RepoSnapshot[]): number {
   const d = openDb();
   if (!d) return 0;
+  // Opportunistic retention (guarded to ~once/day). Prune deletes only rows
+  // strictly older than the window, so the newest snapshot per repo — the one
+  // the alert engine reads — always survives.
+  maybePruneExpired();
   const now = Date.now();
   let inserted = 0;
   const latestStmt = d.prepare(

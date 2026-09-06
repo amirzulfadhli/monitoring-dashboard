@@ -1,6 +1,7 @@
 import { mkdirSync } from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import { maybePruneExpired } from "../maintenance";
 
 /**
  * Persistence + aggregation for AI/API usage, kept separate from collection so
@@ -97,6 +98,10 @@ function openDb(): DatabaseSync | null {
     d.exec(
       `CREATE UNIQUE INDEX IF NOT EXISTS uq_ai_usage_message_id ON ai_usage(messageId)`,
     );
+    // Trailing-window reads (ts >= ?) and retention both scan by timestamp.
+    // A standalone source/model index is not justified: aggregation filters on
+    // source/model in JS after a full-window ts scan, never in SQL.
+    d.exec(`CREATE INDEX IF NOT EXISTS idx_ai_usage_ts ON ai_usage(ts)`);
 
     // Ingestion cursor: byte offset already consumed per transcript file, plus
     // a tiny key/value area for scan throttling. Both are internal to ingestion.
@@ -180,6 +185,10 @@ export function persistClaudeCodeEvents(events: ClaudeCodeUsageEvent[]): number 
   const d = openDb();
   if (!d) return -1;
   if (events.length === 0) return 0;
+  // Opportunistic retention (guarded to ~once/day). Only ai_usage rows older
+  // than the window are deleted — never claude_ingest_state/meta, so the byte
+  // offset cursor (the real dedup authority) survives and nothing replays.
+  maybePruneExpired();
   let inserted = 0;
   const stmt = d.prepare(
     `INSERT OR IGNORE INTO ai_usage
