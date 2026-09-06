@@ -12,7 +12,7 @@ export const navSections: NavItem[] = [
   { label: "APIs" },
   { label: "AI Usage" },
   { label: "Websites", href: "/websites" },
-  { label: "GitHub" },
+  { label: "GitHub", href: "/github" },
   { label: "Projects" },
   { label: "Servers" },
   { label: "Database" },
