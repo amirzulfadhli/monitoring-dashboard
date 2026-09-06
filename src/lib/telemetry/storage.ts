@@ -190,6 +190,37 @@ export function readSummary(rangeMs: number): HistorySummary {
   }
 }
 
+/** One persisted system sample for alert evaluation. */
+export type SystemSample = {
+  ts: number;
+  cpuPct: number | null;
+  usedMem: number | null; // bytes in use
+  availMem: number | null; // bytes free (=> total is derivable)
+};
+
+/**
+ * Read persisted system samples within the trailing window ending now, oldest
+ * first. Backs the CPU/memory alert rules with real persisted history — no new
+ * collector, no OS call at evaluation time. Returns [] on no data / DB failure.
+ */
+export function readSystemSamples(rangeMs: number): SystemSample[] {
+  const d = openDb();
+  if (!d) return [];
+  const since = Date.now() - rangeMs;
+  try {
+    return d
+      .prepare(
+        `SELECT ts, cpuPct, usedMem, availMem
+           FROM history
+          WHERE ts >= ?
+          ORDER BY ts ASC`,
+      )
+      .all(since) as SystemSample[];
+  } catch {
+    return [];
+  }
+}
+
 /** Collapse runs of points into averaged buckets when there are too many. */
 function downsample(
   rows: { ts: number; rxRate: number; txRate: number }[],

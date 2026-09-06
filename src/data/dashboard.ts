@@ -18,7 +18,7 @@ export const navSections: NavItem[] = [
   { label: "Database" },
   { label: "Devices" },
   { label: "Security" },
-  { label: "Alerts" },
+  { label: "Alerts", href: "/alerts" },
   { label: "History" },
   { label: "Settings" },
 ];

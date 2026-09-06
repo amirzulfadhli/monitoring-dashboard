@@ -89,6 +89,38 @@ export type SiteHistorySummary = {
   latestFailureAt: number | null;
 };
 
+/** The most recently persisted check for one target. */
+export type LatestWebsiteCheck = {
+  targetId: string;
+  ts: number;
+  state: "healthy" | "degraded" | "down";
+  latencyMs: number | null;
+};
+
+/**
+ * Read the newest persisted check per target. Alert evaluation uses this rather
+ * than firing a fresh fetch: it reuses whatever the website monitor already
+ * recorded, so no duplicate network request is made just to raise an alert.
+ * Returns [] on no data or DB failure.
+ */
+export function readLatestWebsiteChecks(): LatestWebsiteCheck[] {
+  const d = openDb();
+  if (!d) return [];
+  try {
+    return d
+      .prepare(
+        `SELECT w.targetId AS targetId, w.ts AS ts, w.state AS state,
+                w.latencyMs AS latencyMs
+           FROM website_checks w
+           JOIN (SELECT targetId, MAX(ts) AS m FROM website_checks GROUP BY targetId) x
+             ON x.targetId = w.targetId AND x.m = w.ts`,
+      )
+      .all() as LatestWebsiteCheck[];
+  } catch {
+    return [];
+  }
+}
+
 /**
  * Aggregate the trailing window (ending now) per target. Returns an empty
  * object when there is no data or the DB is unavailable — never throws.

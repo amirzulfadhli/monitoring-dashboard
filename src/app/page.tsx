@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { useLiveTelemetry } from "@/lib/use-live-telemetry";
 
 const REFRESH_MS = 4000; // live telemetry poll (~3–5s requested)
@@ -120,6 +121,28 @@ export default function OverviewPage() {
   const [summary, setSummary] = useState<HistorySummary | null>(null);
   const [summaryState, setSummaryState] = useState<"loading" | "idle" | "error">("loading");
 
+  // Active-alert summary for the header indicator. Fetched once on mount (like
+  // the 24h summary), independent of the live poll.
+  const [alertCounts, setAlertCounts] = useState<{ active: number; critical: number } | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/alerts?status=active", { cache: "no-store" });
+        if (!cancelled && res.ok) {
+          const d = (await res.json()) as { counts: { active: number; critical: number } };
+          setAlertCounts(d.counts);
+        }
+      } catch {
+        // Non-fatal: the indicator simply stays hidden.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+
   // 24h historical summary. Fetched once on mount and independent of the live
   // poll: if it fails, live metrics above keep working.
   useEffect(() => {
@@ -220,6 +243,18 @@ export default function OverviewPage() {
               <span className={`h-1.5 w-1.5 rounded-full ${toneDot[status.tone]}`} aria-hidden="true" />
               {status.label}
             </span>
+            {alertCounts && alertCounts.active > 0 && (
+              <Link
+                href="/alerts"
+                className="inline-flex items-center gap-1.5 rounded-md border border-red-200 bg-red-50 px-2 py-0.5 text-xs font-medium text-red-700 hover:bg-red-100 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300 dark:hover:bg-red-950/70"
+              >
+                <span className="h-1.5 w-1.5 rounded-full bg-red-500" aria-hidden="true" />
+                {alertCounts.active} active
+                {alertCounts.critical > 0 && (
+                  <span className="font-semibold">{alertCounts.critical} critical</span>
+                )}
+              </Link>
+            )}
           </div>
           <p className="mt-0.5 text-sm text-zinc-500 dark:text-zinc-400">
             {up ? (
