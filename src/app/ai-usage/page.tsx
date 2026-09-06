@@ -7,13 +7,31 @@ const REFRESH_MS = 15_000;
 type WindowKey = "24H" | "7D" | "30D";
 const WINDOW_KEYS: WindowKey[] = ["24H", "7D", "30D"];
 
+type UsageSource = "direct" | "claude-code";
+
 type ModelStat = {
+  source: UsageSource;
   model: string;
   requests: number;
   success: number;
   failures: number;
   inputTokens: number;
   outputTokens: number;
+  thinkingTokens: number;
+  cachedTokens: number;
+  totalTokens: number;
+  avgLatencyMs: number | null;
+  estimatedCostUsd: number | null;
+};
+
+type SourceStat = {
+  source: UsageSource;
+  requests: number;
+  success: number;
+  failures: number;
+  inputTokens: number;
+  outputTokens: number;
+  thinkingTokens: number;
   cachedTokens: number;
   totalTokens: number;
   avgLatencyMs: number | null;
@@ -22,6 +40,15 @@ type ModelStat = {
 
 type TimeBucket = { ts: number; requests: number; tokens: number };
 
+type ClaudeCodeIngest = {
+  attempted: boolean;
+  ok: boolean;
+  dirFound: boolean;
+  throttled: boolean;
+  filesScanned: number;
+  insertedRows: number;
+};
+
 type AiUsageSummary = {
   windowMs: number;
   requests: number;
@@ -29,12 +56,15 @@ type AiUsageSummary = {
   failures: number;
   inputTokens: number;
   outputTokens: number;
+  thinkingTokens: number;
   cachedTokens: number;
   totalTokens: number;
   avgLatencyMs: number | null;
   estimatedCostUsd: number | null;
+  bySource: SourceStat[];
   byModel: ModelStat[];
   overTime: TimeBucket[];
+  claudeCodeIngest?: ClaudeCodeIngest;
 };
 
 /** Compact token count, e.g. 1.2M or 340K. */
@@ -116,13 +146,110 @@ function UsageChart({ buckets, unit }: { buckets: TimeBucket[]; unit: string }) 
   );
 }
 
+const SOURCE_META: Record<
+  UsageSource,
+  { title: string; blurb: string }
+> = {
+  direct: {
+    title: "DeepSeek direct · DevPulse",
+    blurb: "Requests made through DevPulse’s own DeepSeek wrapper.",
+  },
+  "claude-code": {
+    title: "DeepSeek via Claude Code",
+    blurb: "Ingested from local Claude Code transcripts for this project.",
+  },
+};
+
+function UsageTable({
+  source,
+  rows,
+}: {
+  source: UsageSource;
+  rows: ModelStat[];
+}) {
+  const meta = SOURCE_META[source];
+  return (
+    <section className="rounded-lg border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-black">
+      <div className="flex items-center justify-between border-b border-zinc-100 px-4 py-3 dark:border-zinc-800/60">
+        <div>
+          <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100">{meta.title}</p>
+          <p className="mt-0.5 text-[11px] text-zinc-400 dark:text-zinc-500">{meta.blurb}</p>
+        </div>
+        <span className="text-[11px] uppercase tracking-wider text-zinc-400 dark:text-zinc-500">
+          DeepSeek · V1
+        </span>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-left text-xs">
+          <thead>
+            <tr className="border-b border-zinc-100 text-[11px] uppercase tracking-wider text-zinc-400 dark:border-zinc-800/60 dark:text-zinc-500">
+              <th className="px-4 py-2 font-medium">Model</th>
+              <th className="px-4 py-2 text-right font-medium">Requests</th>
+              <th className="px-4 py-2 text-right font-medium">Input</th>
+              <th className="px-4 py-2 text-right font-medium">Output</th>
+              <th className="px-4 py-2 text-right font-medium">Thinking</th>
+              <th className="px-4 py-2 text-right font-medium">Total</th>
+              <th className="px-4 py-2 text-right font-medium">Failures</th>
+              <th className="px-4 py-2 text-right font-medium">Latency</th>
+              <th className="px-4 py-2 text-right font-medium">Est. cost</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-zinc-100 font-mono tabular-nums dark:divide-zinc-800/60">
+            {rows.map((m) => (
+              <tr key={`${m.source}:${m.model}`}>
+                <td className="px-4 py-2 text-zinc-900 dark:text-zinc-100">{m.model}</td>
+                <td className="px-4 py-2 text-right text-zinc-500 dark:text-zinc-400">
+                  {m.requests}
+                </td>
+                <td className="px-4 py-2 text-right text-zinc-500 dark:text-zinc-400">
+                  {fmtTokens(m.inputTokens)}
+                </td>
+                <td className="px-4 py-2 text-right text-zinc-500 dark:text-zinc-400">
+                  {fmtTokens(m.outputTokens)}
+                </td>
+                <td className="px-4 py-2 text-right text-zinc-400 dark:text-zinc-600">
+                  {m.thinkingTokens > 0 ? fmtTokens(m.thinkingTokens) : "–"}
+                </td>
+                <td className="px-4 py-2 text-right text-zinc-900 dark:text-zinc-100">
+                  {fmtTokens(m.totalTokens)}
+                </td>
+                <td className="px-4 py-2 text-right">
+                  {m.failures > 0 ? (
+                    <span className="text-red-600 dark:text-red-400">{m.failures}</span>
+                  ) : (
+                    <span className="text-zinc-400 dark:text-zinc-600">0</span>
+                  )}
+                </td>
+                <td className="px-4 py-2 text-right text-zinc-500 dark:text-zinc-400">
+                  {fmtMs(m.avgLatencyMs)}
+                </td>
+                <td className="px-4 py-2 text-right text-zinc-500 dark:text-zinc-400">
+                  {fmtUsd(m.estimatedCostUsd)}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {source === "claude-code" ? (
+        <div className="border-t border-zinc-100 px-4 py-2.5 text-[11px] leading-relaxed text-zinc-400 dark:border-zinc-800/60 dark:text-zinc-500">
+          Token counts are the provider-returned usage metadata in the local transcript; latency is
+          not available for ingested requests; cache accounting via the Anthropic-compatible bridge
+          is not treated as authoritative; cost is estimated, not provider billing.
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
 function EmptyNote() {
   return (
     <div className="rounded-lg border border-dashed border-zinc-300 bg-white px-4 py-8 text-center dark:border-zinc-700 dark:bg-black">
       <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100">No AI usage recorded</p>
       <p className="mx-auto mt-2 max-w-md text-xs leading-relaxed text-zinc-500 dark:text-zinc-400">
-        Usage starts recording when a request is made through DevPulse&apos;s DeepSeek wrapper.
-        No fabricated figures are shown — this page reports real instrumented requests only.
+        Usage records requests made through DevPulse&apos;s DeepSeek wrapper and, when available,
+        DeepSeek usage Claude Code reports in this project&apos;s local transcripts. No fabricated
+        figures are shown — this page reports real instrumented usage only.
       </p>
     </div>
   );
@@ -164,12 +291,22 @@ export default function AiUsagePage() {
         { label: "Total tokens", value: fmtTokens(summary.totalTokens) },
         { label: "Input tokens", value: fmtTokens(summary.inputTokens) },
         { label: "Output tokens", value: fmtTokens(summary.outputTokens) },
-        { label: "Avg latency", value: fmtMs(summary.avgLatencyMs) },
+        { label: "Thinking tokens", value: fmtTokens(summary.thinkingTokens || null) },
         { label: "Est. cost", value: fmtUsd(summary.estimatedCostUsd) },
       ]
     : [];
 
   const hasData = summary != null && summary.requests > 0;
+
+  // Sources actually present in the window, kept in a stable order.
+  const presentSources: UsageSource[] = summary
+    ? summary.bySource
+        .filter((s) => s.requests > 0)
+        .map((s) => s.source)
+        .sort((a) => (a === "direct" ? -1 : 1))
+    : [];
+
+  const ccIngest = summary?.claudeCodeIngest;
 
   return (
     <div className="space-y-6 p-4 md:p-6">
@@ -179,7 +316,7 @@ export default function AiUsagePage() {
             AI Usage
           </h1>
           <p className="mt-0.5 text-sm text-zinc-500 dark:text-zinc-400">
-            Model token consumption and estimated cost for requests made through DevPulse.
+            Model token consumption and estimated cost — direct DeepSeek calls and Claude Code.
           </p>
         </div>
         <div className="flex items-center rounded-md border border-zinc-200 bg-white p-0.5 text-xs dark:border-zinc-800 dark:bg-black">
@@ -201,14 +338,20 @@ export default function AiUsagePage() {
         </div>
       </div>
 
-      {/* Scope / accuracy notes — never present fabricated coverage. */}
+      {/* Scope / accuracy notes — concise, not visually dominant. */}
       <div className="rounded-lg border border-zinc-200 bg-white px-4 py-3 text-xs leading-relaxed text-zinc-500 dark:border-zinc-800 dark:bg-black dark:text-zinc-400">
         <p>
-          This page only reflects requests that pass through DevPulse&apos;s DeepSeek wrapper.
-          It does not and cannot report on Claude Code usage: Claude Code talks to its model
-          providers directly, not through DevPulse, so that usage is not visible here unless a
-          separate, reliable usage source is later integrated.
+          Direct usage is captured by DevPulse&apos;s DeepSeek wrapper. Claude Code usage is read
+          from this project&apos;s local transcripts and is best-effort: cache accounting through the
+          bridge is not authoritative, cost is estimated (not provider billing), and latency is
+          unavailable for ingested requests.
         </p>
+        {ccIngest && !ccIngest.throttled && ccIngest.ok && ccIngest.dirFound ? (
+          <p className="mt-1.5 text-[11px] text-zinc-400 dark:text-zinc-500">
+            Claude Code transcript scan: {ccIngest.filesScanned} file(s) read,{" "}
+            {ccIngest.insertedRows} new row(s) ingested.
+          </p>
+        ) : null}
       </div>
 
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 xl:grid-cols-6">
@@ -229,59 +372,18 @@ export default function AiUsagePage() {
         <EmptyNote />
       ) : summary ? (
         <>
-          <section className="rounded-lg border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-black">
-            <div className="flex items-center justify-between border-b border-zinc-100 px-4 py-3 dark:border-zinc-800/60">
-              <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100">
-                Provider / model
-              </p>
-              <span className="text-[11px] uppercase tracking-wider text-zinc-400 dark:text-zinc-500">
-                DeepSeek · V1
-              </span>
-            </div>
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs">
-                <thead>
-                  <tr className="border-b border-zinc-100 text-[11px] uppercase tracking-wider text-zinc-400 dark:border-zinc-800/60 dark:text-zinc-500">
-                    <th className="px-4 py-2 font-medium">Model</th>
-                    <th className="px-4 py-2 text-right font-medium">Requests</th>
-                    <th className="px-4 py-2 text-right font-medium">Tokens</th>
-                    <th className="px-4 py-2 text-right font-medium">Failures</th>
-                    <th className="px-4 py-2 text-right font-medium">Latency</th>
-                    <th className="px-4 py-2 text-right font-medium">Est. cost</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-zinc-100 font-mono tabular-nums dark:divide-zinc-800/60">
-                  {summary.byModel.map((m) => (
-                    <tr key={m.model}>
-                      <td className="px-4 py-2 text-zinc-900 dark:text-zinc-100">{m.model}</td>
-                      <td className="px-4 py-2 text-right text-zinc-500 dark:text-zinc-400">
-                        {m.requests}
-                      </td>
-                      <td className="px-4 py-2 text-right text-zinc-900 dark:text-zinc-100">
-                        {fmtTokens(m.totalTokens)}
-                      </td>
-                      <td className="px-4 py-2 text-right">
-                        {m.failures > 0 ? (
-                          <span className="text-red-600 dark:text-red-400">{m.failures}</span>
-                        ) : (
-                          <span className="text-zinc-400 dark:text-zinc-600">0</span>
-                        )}
-                      </td>
-                      <td className="px-4 py-2 text-right text-zinc-500 dark:text-zinc-400">
-                        {fmtMs(m.avgLatencyMs)}
-                      </td>
-                      <td className="px-4 py-2 text-right text-zinc-500 dark:text-zinc-400">
-                        {fmtUsd(m.estimatedCostUsd)}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </section>
+          {presentSources.map((source) => (
+            <UsageTable
+              key={source}
+              source={source}
+              rows={summary.byModel.filter((m) => m.source === source && m.requests > 0)}
+            />
+          ))}
 
           <section className="rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-black">
-            <p className="mb-4 text-sm font-medium text-zinc-900 dark:text-zinc-100">Usage over time</p>
+            <p className="mb-4 text-sm font-medium text-zinc-900 dark:text-zinc-100">
+              Usage over time
+            </p>
             {summary.overTime.some((b) => b.requests > 0) ? (
               <UsageChart buckets={summary.overTime} unit="tokens" />
             ) : (
