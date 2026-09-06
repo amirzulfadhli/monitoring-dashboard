@@ -1,10 +1,15 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { timeRanges, trafficSeries } from "@/data/network";
+import { useEffect, useRef, useState } from "react";
 import type { TelemetrySnapshot } from "@/lib/telemetry";
 
 const REFRESH_MS = 3000;
+const LIVE_POINTS = 60; // ~3 minutes of live readings at the poll rate
+
+type RangeKey = "Live" | "1H" | "24H" | "7D" | "30D";
+const RANGE_KEYS: RangeKey[] = ["Live", "1H", "24H", "7D", "30D"];
+
+type Point = { ts: number; rxRate: number; txRate: number };
 
 type Tone = "good" | "warn" | "critical";
 
@@ -42,26 +47,50 @@ function StatTile({
 }
 
 const W = 600;
-const H = 160;
-const PAD = 8;
-const MAX = 70;
+const H = 150;
+const PAD = 10;
 
-function toPoints(series: { down: number; up: number }[], key: "down" | "up") {
-  const n = series.length;
-  return series
-    .map((p, i) => {
+/** Pick a rate unit so the peak reads as a sensible number, e.g. MB/s. */
+function rateUnit(maxBytesPerSec: number) {
+  if (maxBytesPerSec >= 1e6) return { div: 1e6, unit: "MB/s" };
+  if (maxBytesPerSec >= 1e3) return { div: 1e3, unit: "KB/s" };
+  return { div: 1, unit: "B/s" };
+}
+
+/** Round a value up to the next nice axis bound (1/2/5 × 10^k). */
+function niceCeil(v: number) {
+  if (v <= 0) return 1;
+  const pow = Math.pow(10, Math.floor(Math.log10(v)));
+  for (const m of [1, 2, 5, 10]) if (m * pow >= v) return m * pow;
+  return 10 * pow;
+}
+
+/** Compact numeric label for an axis guide value. */
+function fmtAxis(v: number) {
+  if (v >= 100) return String(Math.round(v));
+  if (v >= 10) return v.toFixed(1);
+  return v.toFixed(2);
+}
+
+function linePoints(scaled: number[], yMax: number) {
+  const n = scaled.length;
+  return scaled
+    .map((v, i) => {
       const x = PAD + (i / (n - 1)) * (W - PAD * 2);
-      const y = PAD + (1 - p[key] / MAX) * (H - PAD * 2);
+      const y = PAD + (1 - v / yMax) * (H - PAD * 2);
       return `${x.toFixed(1)},${y.toFixed(1)}`;
     })
     .join(" ");
 }
 
-const downPts = toPoints(trafficSeries, "down");
-const upPts = toPoints(trafficSeries, "up");
+function ThroughputChart({ points }: { points: Point[] }) {
+  const peak = points.reduce((m, p) => Math.max(m, p.rxRate, p.txRate), 1);
+  const { div, unit } = rateUnit(peak);
+  const rx = points.map((p) => p.rxRate / div);
+  const tx = points.map((p) => p.txRate / div);
+  const yMax = niceCeil(Math.max(0, ...rx, ...tx, 0.01));
+  const guides = [0, 0.5, 1];
 
-function TrafficChart() {
-  const guides = [0, 25, 50, MAX];
   return (
     <div>
       <div className="mb-3 flex items-center gap-4 text-xs text-zinc-500 dark:text-zinc-400">
@@ -73,26 +102,44 @@ function TrafficChart() {
           <span className="h-0.5 w-3 rounded bg-emerald-500" aria-hidden="true" />
           Transmit
         </span>
+        <span className="ml-auto font-mono text-zinc-400 dark:text-zinc-500">{unit}</span>
       </div>
       <svg
         viewBox={`0 0 ${W} ${H}`}
         className="h-40 w-full text-zinc-300 dark:text-zinc-700"
         role="img"
-        aria-label="Sample receive and transmit throughput over the past hour (mock)"
+        aria-label={`Receive and transmit rates, ${unit}`}
       >
         {guides.map((g) => {
-          const y = PAD + (1 - g / MAX) * (H - PAD * 2);
+          const y = PAD + (1 - g) * (H - PAD * 2);
           return (
             <g key={g}>
               <line x1={PAD} x2={W - PAD} y1={y} y2={y} stroke="currentColor" strokeWidth="1" />
-              <text x={W - PAD} y={y - 3} textAnchor="end" className="fill-zinc-400 text-[9px] font-mono dark:fill-zinc-500">
-                {g}
+              <text
+                x={W - PAD}
+                y={y - 3}
+                textAnchor="end"
+                className="fill-zinc-400 text-[9px] font-mono dark:fill-zinc-500"
+              >
+                {fmtAxis(g * yMax)}
               </text>
             </g>
           );
         })}
-        <polyline points={upPts} fill="none" stroke="currentColor" className="text-emerald-500" strokeWidth="1.5" />
-        <polyline points={downPts} fill="none" stroke="currentColor" className="text-sky-500" strokeWidth="1.5" />
+        <polyline
+          points={linePoints(tx, yMax)}
+          fill="none"
+          stroke="currentColor"
+          className="text-emerald-500"
+          strokeWidth="1.5"
+        />
+        <polyline
+          points={linePoints(rx, yMax)}
+          fill="none"
+          stroke="currentColor"
+          className="text-sky-500"
+          strokeWidth="1.5"
+        />
       </svg>
     </div>
   );
@@ -113,10 +160,28 @@ function fmtRate(bytesPerSec: number) {
   return { v: bytesPerSec.toFixed(0), u: "B/s" };
 }
 
+// A muted placeholder used for loading / empty / unavailable chart states.
+function ChartState({ message }: { message: string }) {
+  return (
+    <div className="flex h-40 items-center justify-center text-xs text-zinc-400 dark:text-zinc-600">
+      {message}
+    </div>
+  );
+}
+
 export default function NetworkPage() {
+  const [range, setRange] = useState<RangeKey>("Live");
   const [snap, setSnap] = useState<TelemetrySnapshot | null>(null);
   const [unavailable, setUnavailable] = useState(false);
+  const liveRef = useRef<Point[]>([]);
+  const [, forceTick] = useState(0);
 
+  // History state (only fetched when not on Live).
+  const [hist, setHist] = useState<{ range: RangeKey; points: Point[] } | null>(null);
+  const [histState, setHistState] = useState<"idle" | "loading" | "error">("idle");
+
+  // Live telemetry poll: drives the stat tiles, the live chart, and (via the
+  // API) ~30s snapshot persistence. Runs regardless of the selected range.
   useEffect(() => {
     let cancelled = false;
     const load = async () => {
@@ -124,9 +189,16 @@ export default function NetworkPage() {
         const res = await fetch("/api/telemetry", { cache: "no-store" });
         if (res.ok) {
           const data = (await res.json()) as TelemetrySnapshot;
-          if (!cancelled) {
-            setSnap(data);
-            setUnavailable(false);
+          if (cancelled) return;
+          setSnap(data);
+          setUnavailable(false);
+          const net = data.network;
+          if (net && isFinite(net.rxRate) && isFinite(net.txRate)) {
+            liveRef.current = [
+              ...liveRef.current.slice(-(LIVE_POINTS - 1)),
+              { ts: data.collectedAt, rxRate: net.rxRate, txRate: net.txRate },
+            ];
+            forceTick((t) => t + 1);
           }
         } else if (!cancelled) {
           setUnavailable(true);
@@ -143,6 +215,36 @@ export default function NetworkPage() {
     };
   }, []);
 
+  // Historical fetch whenever a non-live range is selected.
+  useEffect(() => {
+    if (range === "Live") return;
+    let cancelled = false;
+    setHistState("loading");
+    const load = async () => {
+      try {
+        const res = await fetch(`/api/telemetry/history?range=${range}`, {
+          cache: "no-store",
+        });
+        if (cancelled) return;
+        if (res.ok) {
+          const data = (await res.json()) as { range: RangeKey; points: Point[] };
+          if (!cancelled) {
+            setHist(data);
+            setHistState("idle");
+          }
+        } else if (!cancelled) {
+          setHistState("error");
+        }
+      } catch {
+        if (!cancelled) setHistState("error");
+      }
+    };
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [range]);
+
   const net = snap?.network ?? null;
   const up = unavailable || !snap || !net;
 
@@ -157,6 +259,35 @@ export default function NetworkPage() {
 
   const active = net?.interfaces.find((i) => !/Virtual|Loopback|vEthernet/i.test(i.name))?.name;
 
+  // Decide what the chart shows for the selected range.
+  const livePoints = liveRef.current;
+  const chartPoints = range === "Live" ? livePoints : hist?.range === range ? hist.points : [];
+  const chartSubtitle =
+    range === "Live"
+      ? up
+        ? "recent — awaiting live data"
+        : "recent — live"
+      : `${range} history`;
+
+  let chartBody: React.ReactNode;
+  if (chartPoints.length === 0) {
+    if (up && range === "Live") {
+      chartBody = <ChartState message="Live telemetry unavailable." />;
+    } else if (range === "Live") {
+      chartBody = <ChartState message="Waiting for live readings…" />;
+    } else if (histState === "loading") {
+      chartBody = <ChartState message="Loading history…" />;
+    } else if (histState === "error") {
+      chartBody = <ChartState message="History unavailable." />;
+    } else {
+      chartBody = (
+        <ChartState message="No history recorded yet for this range. History is collected while DevPulse is running." />
+      );
+    }
+  } else {
+    chartBody = <ThroughputChart points={chartPoints} />;
+  }
+
   return (
     <div className="space-y-6 p-4 md:p-6">
       <div className="flex flex-wrap items-end justify-between gap-4">
@@ -169,13 +300,16 @@ export default function NetworkPage() {
           </p>
         </div>
         <div className="flex items-center rounded-md border border-zinc-200 bg-white p-0.5 text-xs dark:border-zinc-800 dark:bg-black">
-          {timeRanges.map((r) => (
+          {RANGE_KEYS.map((r) => (
             <button
               key={r}
+              type="button"
+              onClick={() => setRange(r)}
+              aria-pressed={r === range}
               className={
-                r === "Live"
+                r === range
                   ? "rounded bg-zinc-900 px-2.5 py-1 font-medium text-zinc-50 dark:bg-zinc-100 dark:text-zinc-900"
-                  : "cursor-default rounded px-2.5 py-1 text-zinc-500 dark:text-zinc-400"
+                  : "cursor-pointer rounded px-2.5 py-1 text-zinc-500 transition-colors hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
               }
             >
               {r}
@@ -213,11 +347,9 @@ export default function NetworkPage() {
       <div className="rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-black">
         <div className="mb-4 flex items-baseline justify-between gap-2">
           <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100">Throughput</p>
-          <span className="font-mono text-xs text-zinc-400 dark:text-zinc-500">
-            past hour · sample (mock)
-          </span>
+          <span className="font-mono text-xs text-zinc-400 dark:text-zinc-500">{chartSubtitle}</span>
         </div>
-        <TrafficChart />
+        {chartBody}
       </div>
     </div>
   );

@@ -20,6 +20,9 @@
 # production
 /build
 
+# local telemetry history (sqlite)
+/.devpulse/
+
 # misc
 .DS_Store
 *.pem
