@@ -277,6 +277,40 @@ export function writeIngestMeta(key: string, value: number): void {
   }
 }
 
+/** A single usage row reduced to what the History timeline aggregates on. */
+export type UsageRowForHistory = {
+  ts: number;
+  source: UsageSource;
+  model: string | null;
+  totalTokens: number | null;
+  inputTokens: number | null;
+  outputTokens: number | null;
+  estimatedCostUsd: number | null;
+};
+
+/**
+ * Raw usage rows within the trailing window (ts >= since), oldest first. Backs
+ * the History timeline's per-bucket usage summaries. Returns [] on no data or
+ * DB failure — never throws.
+ */
+export function readUsageRowsSince(since: number): UsageRowForHistory[] {
+  const d = openDb();
+  if (!d) return [];
+  try {
+    return d
+      .prepare(
+        `SELECT ts, source, model, totalTokens, inputTokens, outputTokens,
+                estimatedCostUsd
+           FROM ai_usage
+          WHERE ts >= ?
+          ORDER BY ts ASC`,
+      )
+      .all(since) as UsageRowForHistory[];
+  } catch {
+    return [];
+  }
+}
+
 /* ------------------------------------------------------------------ *
  * Aggregation
  * ------------------------------------------------------------------ */

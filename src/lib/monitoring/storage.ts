@@ -77,6 +77,37 @@ export function persistWebsiteCheck(row: WebsiteCheckRow): boolean {
   }
 }
 
+/** A stored website check row, used to derive state-transition events. */
+export type StoredWebsiteCheck = {
+  ts: number;
+  targetId: string;
+  state: "healthy" | "degraded" | "down";
+  latencyMs: number | null;
+  httpStatus: number | null;
+};
+
+/**
+ * Raw persisted website checks within the trailing window (ts >= since),
+ * oldest first. Backs the History timeline's state-transition derivation.
+ * Returns [] on no data or DB failure — never throws.
+ */
+export function readWebsiteChecks(since: number): StoredWebsiteCheck[] {
+  const d = openDb();
+  if (!d) return [];
+  try {
+    return d
+      .prepare(
+        `SELECT ts, targetId, state, latencyMs, httpStatus
+           FROM website_checks
+          WHERE ts >= ?
+          ORDER BY ts ASC`,
+      )
+      .all(since) as StoredWebsiteCheck[];
+  } catch {
+    return [];
+  }
+}
+
 /** Per-target 24h availability summary computed only from stored rows. */
 export type SiteHistorySummary = {
   /** Number of stored checks in the window; low values imply sparse history. */

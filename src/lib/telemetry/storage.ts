@@ -221,6 +221,37 @@ export function readSystemSamples(rangeMs: number): SystemSample[] {
   }
 }
 
+/** A persisted system/network sample used to build timeline summaries. */
+export type TelemetryRow = {
+  ts: number;
+  cpuPct: number | null;
+  usedMem: number | null;
+  rxRate: number | null;
+  txRate: number | null;
+};
+
+/**
+ * Raw persisted telemetry rows within the trailing window (ts >= since),
+ * oldest first. Backs the History timeline's hourly CPU/memory + network
+ * summaries. Returns [] on no data or DB failure — never throws.
+ */
+export function readTelemetryRows(since: number): TelemetryRow[] {
+  const d = openDb();
+  if (!d) return [];
+  try {
+    return d
+      .prepare(
+        `SELECT ts, cpuPct, usedMem, rxRate, txRate
+           FROM history
+          WHERE ts >= ?
+          ORDER BY ts ASC`,
+      )
+      .all(since) as TelemetryRow[];
+  } catch {
+    return [];
+  }
+}
+
 /** Collapse runs of points into averaged buckets when there are too many. */
 function downsample(
   rows: { ts: number; rxRate: number; txRate: number }[],

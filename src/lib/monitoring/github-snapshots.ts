@@ -250,3 +250,26 @@ export function readGithubSnapshotHistory(
     return [];
   }
 }
+
+/**
+ * Raw persisted snapshots across every repository within the trailing window
+ * (ts >= since), oldest first. Backs the History timeline's change-derivation
+ * (commit SHA, workflow conclusion, health state). Returns [] on no data or DB
+ * failure — never throws.
+ */
+export function readGithubSnapshotsSince(since: number): StoredGithubSnapshot[] {
+  const d = openDb();
+  if (!d) return [];
+  try {
+    const rows = d
+      .prepare(
+        `SELECT * FROM github_snapshots
+          WHERE ts >= ?
+          ORDER BY repoKey ASC, ts ASC`,
+      )
+      .all(since) as Row[];
+    return rows.map(toSnapshot);
+  } catch {
+    return [];
+  }
+}
