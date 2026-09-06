@@ -1,13 +1,14 @@
 export type NavItem = {
   label: string;
-  active?: boolean;
+  // Present only for routed pages. Items without href render inert (muted).
+  href?: string;
 };
 
-// Placeholder sections for the planned dashboard. Only "Overview" is routed
-// for now; the rest are inert and render muted until their pages exist.
+// Planned dashboard sections. Only "Overview" and "Network" are routed for
+// now; the rest are inert until their pages exist.
 export const navSections: NavItem[] = [
-  { label: "Overview", active: true },
-  { label: "Network" },
+  { label: "Overview", href: "/" },
+  { label: "Network", href: "/network" },
   { label: "APIs" },
   { label: "AI Usage" },
   { label: "Websites" },
