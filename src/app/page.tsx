@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useLiveTelemetry } from "@/lib/use-live-telemetry";
+import { useMonitoringStatus } from "@/lib/use-monitoring-status";
 import { IntelligencePanel } from "@/components/intelligence-panel";
 
 const REFRESH_MS = 4000; // live telemetry poll (~3–5s requested)
@@ -51,6 +52,15 @@ function fmtRate(bps: number | null): string {
 
 function fmtPct(v: number | null): string {
   return v == null ? "–" : `${v.toFixed(0)}%`;
+}
+
+/** Compact age of the last background sample, e.g. "12s ago" / "4m ago". */
+function fmtAge(ms: number | null): string {
+  if (ms == null) return "–";
+  const s = Math.max(0, Math.floor(ms / 1000));
+  if (s < 60) return `${s}s ago`;
+  if (s < 3600) return `${Math.floor(s / 60)}m ago`;
+  return `${Math.floor(s / 3600)}h ago`;
 }
 
 function fmtUptime(sec: number | null): string {
@@ -118,6 +128,10 @@ function DetailPanel({ title, rows }: { title: string; rows: { label: string; va
 
 export default function OverviewPage() {
   const { snapshot, unavailable } = useLiveTelemetry({ refreshMs: REFRESH_MS });
+  // Background scheduler state — tells us whether collection is still happening
+  // (and how recently) independently of this tab's own polling.
+  const monitoring = useMonitoringStatus();
+  const freshness = monitoring?.freshness ?? null;
 
   const [summary, setSummary] = useState<HistorySummary | null>(null);
   const [summaryState, setSummaryState] = useState<"loading" | "idle" | "error">("loading");
@@ -267,6 +281,23 @@ export default function OverviewPage() {
               "Live telemetry is currently unavailable."
             )}
           </p>
+          {/* Background monitoring freshness: collection continues while this
+              tab is closed, so staleness is worth surfacing. */}
+          {freshness && (
+            <p
+              className={`mt-1 text-xs ${
+                freshness.state === "active"
+                  ? "text-zinc-400 dark:text-zinc-500"
+                  : "text-amber-600 dark:text-amber-400"
+              }`}
+            >
+              {freshness.state === "active"
+                ? `Monitoring active · last sample ${fmtAge(freshness.ageMs)}`
+                : freshness.state === "starting"
+                  ? "Monitoring starting…"
+                  : "Monitoring stale"}
+            </p>
+          )}
         </div>
         {snapshot && (
           <p className="font-mono text-xs text-zinc-400 dark:text-zinc-500">

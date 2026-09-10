@@ -1,12 +1,33 @@
 import { collectTelemetry } from "@/lib/telemetry";
 import { persistSnapshot } from "@/lib/telemetry/storage";
+import { ensureSchedulerStarted } from "@/lib/scheduler";
+import { getLatestTelemetry } from "@/lib/scheduler/store";
 
 // Server-only collector; never statically pre-rendered.
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+/**
+ * GET /api/telemetry
+ *
+ * Serves the most recent scheduler-collected snapshot. Browser polling is a
+ * read of already-captured state and never spawns a fresh OS collection, so
+ * N open tabs cannot multiply PowerShell/OS sampling.
+ *
+ * The collector is only invoked here as a cold-start fallback (the scheduler's
+ * first sample lands ~2s after boot).
+ */
 export async function GET() {
   try {
+    ensureSchedulerStarted();
+
+    const latest = getLatestTelemetry();
+    if (latest) {
+      return Response.json(latest.value, {
+        headers: { "Cache-Control": "no-store" },
+      });
+    }
+
     const snapshot = await collectTelemetry();
     // Persist a row for historical monitoring. Guarded to ~30s inside storage;
     // a failure here must not affect the live response.
