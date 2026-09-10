@@ -1,0 +1,27 @@
+name: CI
+
+# Verification only: tests and a type check. Nothing here starts the
+# scheduler, contacts GitHub, calls DeepSeek, or deploys anything.
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Pinned to the version this project is developed against: the test suite
+      # and the app both rely on the built-in node:sqlite module.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22.15"
+          cache: npm
+
+      - run: npm ci
+      - run: npm test
+      - run: npx tsc --noEmit
