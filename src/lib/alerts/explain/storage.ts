@@ -10,48 +10,12 @@
  * surfaced; older rows for a fingerprint are pruned on write.
  */
 
-import { mkdirSync } from "node:fs";
-import path from "node:path";
-import { DatabaseSync } from "node:sqlite";
+import { getDb } from "@/lib/db";
 import { DAY_MS } from "../config";
 import type { AlertExplanation, ExplainEvidenceRef } from "./model";
 
-const DB_DIR = path.join(process.cwd(), ".devpulse");
-const DB_PATH = path.join(DB_DIR, "telemetry.db");
-
 const MAX_KEPT_PER_FINGERPRINT = 20;
 const PRUNE_HORIZON_MS = 7 * DAY_MS;
-
-let db: DatabaseSync | null = null;
-
-function openDb(): DatabaseSync | null {
-  if (db) return db;
-  try {
-    mkdirSync(DB_DIR, { recursive: true });
-    const d = new DatabaseSync(DB_PATH);
-    d.exec(`
-      CREATE TABLE IF NOT EXISTS alert_explanations (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        fingerprint TEXT NOT NULL,
-        versionKey TEXT NOT NULL,
-        createdAt INTEGER NOT NULL,        -- epoch ms
-        summary TEXT NOT NULL,
-        likelyCause TEXT,
-        confidence TEXT NOT NULL,
-        evidence TEXT NOT NULL,            -- JSON array of {eventId,relevance}
-        checks TEXT NOT NULL,              -- JSON array of string
-        evidenceEventIds TEXT NOT NULL,    -- JSON array of string (grounding refs)
-        model TEXT,
-        usage TEXT                          -- JSON {inputTokens,outputTokens,estimatedCostUsd}
-      );
-      CREATE INDEX IF NOT EXISTS idx_explain_fp ON alert_explanations(fingerprint);
-    `);
-    db = d;
-    return d;
-  } catch {
-    return null;
-  }
-}
 
 export type ExplainUsage = {
   inputTokens: number | null;
@@ -143,7 +107,7 @@ function toStored(r: Row): StoredExplanation | null {
 
 /** Read the most recent stored explanation for a fingerprint. Never throws. */
 export function readExplain(fingerprint: string): StoredExplanation | null {
-  const d = openDb();
+  const d = getDb();
   if (!d) return null;
   try {
     const r = d
@@ -168,7 +132,7 @@ export function persistExplain(p: {
   model: string | null;
   usage: ExplainUsage | null;
 }): boolean {
-  const d = openDb();
+  const d = getDb();
   if (!d) return false;
   try {
     d.prepare(

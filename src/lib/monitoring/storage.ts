@@ -1,6 +1,4 @@
-import path from "node:path";
-import { DatabaseSync } from "node:sqlite";
-import { mkdirSync } from "node:fs";
+import { getDb } from "@/lib/db";
 import { maybePruneExpired } from "../maintenance";
 
 /**
@@ -9,9 +7,6 @@ import { maybePruneExpired } from "../maintenance";
  * and it lives in the same on-disk SQLite database as telemetry — but in its
  * own table so the two histories never mix.
  */
-
-const DB_DIR = path.join(process.cwd(), ".devpulse");
-const DB_PATH = path.join(DB_DIR, "telemetry.db");
 
 /** A row to persist for one check of one target. */
 export type WebsiteCheckRow = {
@@ -27,41 +22,9 @@ export type WebsiteCheckRow = {
 /** 24-hour summary window. */
 export const DAY_MS = 86_400_000;
 
-let db: DatabaseSync | null = null;
-
-/** Open (once) and prepare the database. Returns null on any failure. */
-function openDb(): DatabaseSync | null {
-  if (db) return db;
-  try {
-    mkdirSync(DB_DIR, { recursive: true });
-    const d = new DatabaseSync(DB_PATH);
-    d.exec(`
-      CREATE TABLE IF NOT EXISTS website_checks (
-        ts INTEGER,                    -- epoch ms
-        targetId TEXT,
-        state TEXT,                    -- healthy | degraded | down
-        httpStatus INTEGER,            -- null when unreachable
-        latencyMs REAL,                -- response latency, null on failure
-        errorType TEXT,                -- timeout | dns | network | unexpected_status | ...
-        error TEXT,
-        PRIMARY KEY (ts, targetId)
-      );
-      -- ts is the leading PK column, so range reads + retention already scan by
-      -- timestamp. This secondary index serves latest-per-target reads and any
-      -- per-target time queries (alert evaluation / history) without a full scan.
-      CREATE INDEX IF NOT EXISTS idx_website_checks_target_ts
-        ON website_checks(targetId, ts);
-    `);
-    db = d;
-    return d;
-  } catch {
-    return null;
-  }
-}
-
 /** Persist one check. Never throws. */
 export function persistWebsiteCheck(row: WebsiteCheckRow): boolean {
-  const d = openDb();
+  const d = getDb();
   if (!d) return false;
   // Opportunistic retention (guarded to ~once/day) rides the write path.
   maybePruneExpired();
@@ -100,7 +63,7 @@ export type StoredWebsiteCheck = {
  * Returns [] on no data or DB failure — never throws.
  */
 export function readWebsiteChecks(since: number): StoredWebsiteCheck[] {
-  const d = openDb();
+  const d = getDb();
   if (!d) return [];
   try {
     return d
@@ -143,7 +106,7 @@ export type LatestWebsiteCheck = {
  * Returns [] on no data or DB failure.
  */
 export function readLatestWebsiteChecks(): LatestWebsiteCheck[] {
-  const d = openDb();
+  const d = getDb();
   if (!d) return [];
   try {
     return d
@@ -167,7 +130,7 @@ export function readLatestWebsiteChecks(): LatestWebsiteCheck[] {
 export function readWebsiteSummaries(
   rangeMs: number,
 ): Record<string, SiteHistorySummary> {
-  const d = openDb();
+  const d = getDb();
   if (!d) return {};
   const since = Date.now() - rangeMs;
   try {

@@ -1,6 +1,4 @@
-import { mkdirSync } from "node:fs";
-import path from "node:path";
-import { DatabaseSync } from "node:sqlite";
+import { getDb } from "@/lib/db";
 import { maybePruneExpired } from "../maintenance";
 
 /**
@@ -14,9 +12,6 @@ import { maybePruneExpired } from "../maintenance";
  * reached through Claude Code's local transcripts) stays distinguishable from
  * DevPulse's own direct DeepSeek calls. Both share provider = "deepseek".
  */
-
-const DB_DIR = path.join(process.cwd(), ".devpulse");
-const DB_PATH = path.join(DB_DIR, "telemetry.db");
 
 export const DAY_MS = 86_400_000;
 
@@ -46,85 +41,9 @@ export type AiUsageRow = {
   messageId?: string | null; // stable external key for Claude Code usage
 };
 
-let db: DatabaseSync | null = null;
-
-/** Add a column to ai_usage only if it does not exist yet (backward-compatible). */
-function addColumn(d: DatabaseSync, column: string, ddl: string): void {
-  try {
-    const found = (d.prepare(`PRAGMA table_info(ai_usage)`).all() as { name: string }[]).some(
-      (c) => c.name === column,
-    );
-    if (!found) d.exec(`ALTER TABLE ai_usage ADD COLUMN ${ddl}`);
-  } catch {
-    // A failed migration must never prevent the table from being usable.
-  }
-}
-
-/** Open (once) and prepare the database. Returns null on any failure. */
-function openDb(): DatabaseSync | null {
-  if (db) return db;
-  try {
-    mkdirSync(DB_DIR, { recursive: true });
-    const d = new DatabaseSync(DB_PATH);
-    d.exec(`
-      CREATE TABLE IF NOT EXISTS ai_usage (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        ts INTEGER NOT NULL,            -- epoch ms
-        provider TEXT NOT NULL,
-        model TEXT,
-        inputTokens INTEGER,
-        outputTokens INTEGER,
-        cachedTokens INTEGER,
-        totalTokens INTEGER,
-        latencyMs REAL,                 -- request duration, null on failure
-        httpStatus INTEGER,             -- null when the request never returned
-        success INTEGER NOT NULL,       -- 1 success, 0 failure
-        errorType TEXT,
-        requestId TEXT,
-        estimatedCostUsd REAL
-      );
-    `);
-
-    // Small backward-compatible migrations for previously-created databases.
-    addColumn(d, "source", "source TEXT NOT NULL DEFAULT 'direct'");
-    addColumn(d, "sessionId", "sessionId TEXT");
-    addColumn(d, "thinkingTokens", "thinkingTokens INTEGER");
-    addColumn(d, "cacheCreationTokens", "cacheCreationTokens INTEGER");
-    addColumn(d, "cacheReadTokens", "cacheReadTokens INTEGER");
-    addColumn(d, "messageId", "messageId TEXT");
-    // Persistence-level idempotency for Claude Code ingestion: the assistant
-    // message id is a stable external key. SQLite unique indexes permit many
-    // NULLs, so pre-existing direct rows are unaffected.
-    d.exec(
-      `CREATE UNIQUE INDEX IF NOT EXISTS uq_ai_usage_message_id ON ai_usage(messageId)`,
-    );
-    // Trailing-window reads (ts >= ?) and retention both scan by timestamp.
-    // A standalone source/model index is not justified: aggregation filters on
-    // source/model in JS after a full-window ts scan, never in SQL.
-    d.exec(`CREATE INDEX IF NOT EXISTS idx_ai_usage_ts ON ai_usage(ts)`);
-
-    // Ingestion cursor: byte offset already consumed per transcript file, plus
-    // a tiny key/value area for scan throttling. Both are internal to ingestion.
-    d.exec(`
-      CREATE TABLE IF NOT EXISTS claude_ingest_state (
-        path TEXT PRIMARY KEY,
-        offset INTEGER NOT NULL DEFAULT 0
-      );
-      CREATE TABLE IF NOT EXISTS claude_ingest_meta (
-        k TEXT PRIMARY KEY,
-        v INTEGER NOT NULL
-      );
-    `);
-    db = d;
-    return d;
-  } catch {
-    return null;
-  }
-}
-
 /** Persist one instrumented request (defaults to source 'direct'). Never throws. */
 export function persistAiUsage(row: AiUsageRow): boolean {
-  const d = openDb();
+  const d = getDb();
   if (!d) return false;
   try {
     d.prepare(
@@ -182,7 +101,7 @@ export type ClaudeCodeUsageEvent = {
  * (callers must not advance their cursor in that case).
  */
 export function persistClaudeCodeEvents(events: ClaudeCodeUsageEvent[]): number {
-  const d = openDb();
+  const d = getDb();
   if (!d) return -1;
   if (events.length === 0) return 0;
   // Opportunistic retention (guarded to ~once/day). Only ai_usage rows older
@@ -235,7 +154,7 @@ export function persistClaudeCodeEvents(events: ClaudeCodeUsageEvent[]): number 
  * ------------------------------------------------------------------ */
 
 export function readIngestOffset(file: string): number {
-  const d = openDb();
+  const d = getDb();
   if (!d) return 0;
   try {
     const r = d
@@ -248,7 +167,7 @@ export function readIngestOffset(file: string): number {
 }
 
 export function writeIngestOffset(file: string, offset: number): void {
-  const d = openDb();
+  const d = getDb();
   if (!d) return;
   try {
     d.prepare(
@@ -261,7 +180,7 @@ export function writeIngestOffset(file: string, offset: number): void {
 }
 
 export function readIngestMeta(key: string): number | null {
-  const d = openDb();
+  const d = getDb();
   if (!d) return null;
   try {
     const r = d.prepare(`SELECT v FROM claude_ingest_meta WHERE k = ?`).get(key) as
@@ -274,7 +193,7 @@ export function readIngestMeta(key: string): number | null {
 }
 
 export function writeIngestMeta(key: string, value: number): void {
-  const d = openDb();
+  const d = getDb();
   if (!d) return;
   try {
     d.prepare(
@@ -303,7 +222,7 @@ export type UsageRowForHistory = {
  * DB failure — never throws.
  */
 export function readUsageRowsSince(since: number): UsageRowForHistory[] {
-  const d = openDb();
+  const d = getDb();
   if (!d) return [];
   try {
     return d
@@ -408,7 +327,7 @@ export function readAiUsage(rangeMs: number): AiUsageSummary {
     overTime: [],
   };
 
-  const d = openDb();
+  const d = getDb();
   if (!d) return empty;
   const since = Date.now() - rangeMs;
   let rows;

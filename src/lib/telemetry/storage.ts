@@ -1,6 +1,4 @@
-import { mkdirSync } from "node:fs";
-import path from "node:path";
-import { DatabaseSync } from "node:sqlite";
+import { getDb } from "@/lib/db";
 
 /**
  * Local persistence for telemetry history. Isolated behind this module so the
@@ -17,38 +15,9 @@ import { DatabaseSync } from "node:sqlite";
 // ~30s instead of one per request.
 export const SNAPSHOT_INTERVAL_MS = 30_000;
 
-const DB_DIR = path.join(process.cwd(), ".devpulse");
-const DB_PATH = path.join(DB_DIR, "telemetry.db");
-
 type Row = Record<string, string | number | bigint | null>;
 
-let db: DatabaseSync | null = null;
 let lastPersistedAt = 0;
-
-/** Open (once) and prepare the database. Returns null on any failure. */
-function openDb(): DatabaseSync | null {
-  if (db) return db;
-  try {
-    mkdirSync(DB_DIR, { recursive: true });
-    const d = new DatabaseSync(DB_PATH);
-    d.exec(`
-      CREATE TABLE IF NOT EXISTS history (
-        ts INTEGER PRIMARY KEY,          -- epoch ms
-        cpuPct REAL,                     -- CPU busy %
-        usedMem INTEGER,                 -- bytes in use
-        availMem INTEGER,                -- bytes free
-        rxRate REAL,                     -- bytes/sec
-        txRate REAL,                     -- bytes/sec
-        rxTotal INTEGER,                 -- cumulative received bytes
-        txTotal INTEGER                  -- cumulative transmitted bytes
-      );
-    `);
-    db = d;
-    return d;
-  } catch {
-    return null;
-  }
-}
 
 /** The subset of a snapshot worth keeping for historical monitoring. */
 export type PersistableSnapshot = {
@@ -68,7 +37,7 @@ export type PersistableSnapshot = {
  * throws.
  */
 export function persistSnapshot(s: PersistableSnapshot): boolean {
-  const d = openDb();
+  const d = getDb();
   if (!d) return false;
   if (s.ts - lastPersistedAt < SNAPSHOT_INTERVAL_MS) return false;
   try {
@@ -102,7 +71,7 @@ export type HistoryPoint = { ts: number; rxRate: number; txRate: number };
  * reading are excluded. Returns [] on empty history or DB failure.
  */
 export function readRange(rangeMs: number, maxPoints: number): HistoryPoint[] {
-  const d = openDb();
+  const d = getDb();
   if (!d) return [];
   const since = Date.now() - rangeMs;
   try {
@@ -145,7 +114,7 @@ const EMPTY_SUMMARY: HistorySummary = {
  * never throws.
  */
 export function readSummary(rangeMs: number): HistorySummary {
-  const d = openDb();
+  const d = getDb();
   if (!d) return EMPTY_SUMMARY;
   const since = Date.now() - rangeMs;
   try {
@@ -204,7 +173,7 @@ export type SystemSample = {
  * collector, no OS call at evaluation time. Returns [] on no data / DB failure.
  */
 export function readSystemSamples(rangeMs: number): SystemSample[] {
-  const d = openDb();
+  const d = getDb();
   if (!d) return [];
   const since = Date.now() - rangeMs;
   try {
@@ -236,7 +205,7 @@ export type TelemetryRow = {
  * summaries. Returns [] on no data or DB failure — never throws.
  */
 export function readTelemetryRows(since: number): TelemetryRow[] {
-  const d = openDb();
+  const d = getDb();
   if (!d) return [];
   try {
     return d

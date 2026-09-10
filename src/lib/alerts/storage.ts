@@ -1,6 +1,4 @@
-import path from "node:path";
-import { mkdirSync } from "node:fs";
-import { DatabaseSync } from "node:sqlite";
+import { getDb } from "@/lib/db";
 import { DAY_MS } from "./config";
 import type {
   AlertCounts,
@@ -18,38 +16,6 @@ import type {
  * never mix. One row per fingerprint keeps a persistent condition from
  * duplicating into a new alert every evaluation cycle.
  */
-
-const DB_DIR = path.join(process.cwd(), ".devpulse");
-const DB_PATH = path.join(DB_DIR, "telemetry.db");
-
-let db: DatabaseSync | null = null;
-
-function openDb(): DatabaseSync | null {
-  if (db) return db;
-  try {
-    mkdirSync(DB_DIR, { recursive: true });
-    const d = new DatabaseSync(DB_PATH);
-    d.exec(`
-      CREATE TABLE IF NOT EXISTS alerts (
-        fingerprint TEXT PRIMARY KEY,
-        source TEXT NOT NULL,
-        ruleId TEXT NOT NULL,
-        severity TEXT NOT NULL,
-        title TEXT NOT NULL,
-        message TEXT NOT NULL,
-        status TEXT NOT NULL,             -- active | resolved
-        firstSeenAt INTEGER NOT NULL,     -- epoch ms
-        lastSeenAt INTEGER NOT NULL,      -- epoch ms
-        resolvedAt INTEGER,               -- epoch ms; null while active
-        metadata TEXT                     -- small JSON extras
-      );
-    `);
-    db = d;
-    return d;
-  } catch {
-    return null;
-  }
-}
 
 type Row = {
   fingerprint: string;
@@ -89,7 +55,7 @@ function toRecord(r: Row): AlertRecord {
 
 /** Apply one verdict: activate (create or refresh) or resolve. Never throws. */
 export function applyVerdict(v: RuleVerdict, now: number): void {
-  const d = openDb();
+  const d = getDb();
   if (!d) return;
   try {
     const meta = JSON.stringify(v.metadata ?? {});
@@ -150,7 +116,7 @@ export type AlertQueryStatus = "active" | "resolved" | "all";
 
 /** Read alerts, optionally filtered by status, newest-last-seen first. */
 export function readAlerts(status: AlertQueryStatus): AlertRecord[] {
-  const d = openDb();
+  const d = getDb();
   if (!d) return [];
   try {
     const rows = (
@@ -174,7 +140,7 @@ export function readAlerts(status: AlertQueryStatus): AlertRecord[] {
 
 /** Derive the summary counts served by the API and Overview indicator. */
 export function readCounts(now: number): AlertCounts {
-  const d = openDb();
+  const d = getDb();
   const empty: AlertCounts = {
     active: 0,
     critical: 0,

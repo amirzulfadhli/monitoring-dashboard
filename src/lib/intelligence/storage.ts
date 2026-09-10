@@ -10,48 +10,14 @@
  * recent row; a light prune keeps the table small on each write.
  */
 
-import { mkdirSync } from "node:fs";
-import path from "node:path";
-import { DatabaseSync } from "node:sqlite";
+import { getDb } from "@/lib/db";
 import { DAY_MS } from "../alerts/config";
 import type { Finding, IntelligenceAnalysis } from "./model";
-
-const DB_DIR = path.join(process.cwd(), ".devpulse");
-const DB_PATH = path.join(DB_DIR, "telemetry.db");
 
 /** Keep at most this many recent analyses; older rows are pruned on write. */
 const MAX_KEPT_ROWS = 25;
 /** Hard horizon; anything older than this is pruned on write regardless. */
 const PRUNE_HORIZON_MS = 7 * DAY_MS;
-
-let db: DatabaseSync | null = null;
-
-function openDb(): DatabaseSync | null {
-  if (db) return db;
-  try {
-    mkdirSync(DB_DIR, { recursive: true });
-    const d = new DatabaseSync(DB_PATH);
-    d.exec(`
-      CREATE TABLE IF NOT EXISTS intelligence (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        ts INTEGER NOT NULL,               -- analyzedAt epoch ms
-        windowHours INTEGER NOT NULL,      -- analysis window (24 for V1)
-        status TEXT NOT NULL,
-        summary TEXT NOT NULL,
-        findings TEXT NOT NULL,            -- JSON array of Finding
-        recommendations TEXT NOT NULL,     -- JSON array of string
-        evidenceEventIds TEXT NOT NULL,    -- JSON array of string (grounding refs)
-        evidenceCount INTEGER NOT NULL,    -- events supplied to the model
-        model TEXT,
-        usage TEXT                          -- JSON {inputTokens,outputTokens,estimatedCostUsd}
-      );
-    `);
-    db = d;
-    return d;
-  } catch {
-    return null;
-  }
-}
 
 /** The stored shape returned to callers (parsed back out of the row). */
 export type PersistedAnalysis = {
@@ -139,7 +105,7 @@ function toPersisted(r: Row): PersistedAnalysis | null {
 
 /** Read the most recent persisted analysis, newest first. Never throws. */
 export function readLatest(): PersistedAnalysis | null {
-  const d = openDb();
+  const d = getDb();
   if (!d) return null;
   try {
     const r = d
@@ -163,7 +129,7 @@ export function persistAnalysis(p: {
   model: string | null;
   usage: PersistedAnalysis["usage"];
 }): boolean {
-  const d = openDb();
+  const d = getDb();
   if (!d) return false;
   try {
     d.prepare(

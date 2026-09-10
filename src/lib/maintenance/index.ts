@@ -1,6 +1,5 @@
-import { mkdirSync } from "node:fs";
-import path from "node:path";
-import { DatabaseSync } from "node:sqlite";
+import type { DatabaseSync } from "node:sqlite";
+import { getDb } from "@/lib/db";
 import {
   MAINTENANCE_INTERVAL_MS,
   MAINTENANCE_RETRY_MS,
@@ -26,9 +25,6 @@ import {
  * dedup authority, not the rows).
  */
 
-const DB_DIR = path.join(process.cwd(), ".devpulse");
-const DB_PATH = path.join(DB_DIR, "telemetry.db");
-
 /** The tables pruned by retention and the retention key each maps to. */
 const PRUNE_TARGETS: { table: string; retentionMs: number }[] = [
   { table: "history", retentionMs: RETENTION_MS.telemetry },
@@ -36,31 +32,6 @@ const PRUNE_TARGETS: { table: string; retentionMs: number }[] = [
   { table: "ai_usage", retentionMs: RETENTION_MS.aiUsage },
   { table: "github_snapshots", retentionMs: RETENTION_MS.githubSnapshots },
 ];
-
-/** The DB location, overridable for isolated/scratch verification. */
-function dbPath(): string {
-  return process.env.DEVPULSE_DB_PATH
-    ? path.resolve(process.env.DEVPULSE_DB_PATH)
-    : DB_PATH;
-}
-
-let db: DatabaseSync | null = null;
-
-/** Open (once) and prepare. Returns null on any failure. */
-function openDb(): DatabaseSync | null {
-  if (db) return db;
-  try {
-    mkdirSync(path.dirname(dbPath()), { recursive: true });
-    const d = new DatabaseSync(dbPath());
-    d.exec(
-      `CREATE TABLE IF NOT EXISTS maintenance_state (k TEXT PRIMARY KEY, v INTEGER NOT NULL)`,
-    );
-    db = d;
-    return d;
-  } catch {
-    return null;
-  }
-}
 
 function readLastPruneAt(d: DatabaseSync): number | null {
   try {
@@ -111,7 +82,7 @@ let nextAllowedAt = 0;
 export function maybePruneExpired(now: number = Date.now()): boolean {
   if (now < nextAllowedAt) return false;
 
-  const d = openDb();
+  const d = getDb();
   if (!d) {
     nextAllowedAt = now + MAINTENANCE_RETRY_MS;
     return false;

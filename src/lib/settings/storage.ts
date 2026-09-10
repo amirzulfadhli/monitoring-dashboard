@@ -11,11 +11,9 @@
  * variables.
  */
 
-import path from "node:path";
 import { randomUUID } from "node:crypto";
-import { mkdirSync } from "node:fs";
-import { DatabaseSync } from "node:sqlite";
 
+import { getDb } from "@/lib/db";
 import { monitoredSites } from "@/data/monitored-sites";
 import { monitoredRepos } from "@/data/monitored-repos";
 import { alertConfig } from "@/lib/alerts/config";
@@ -26,55 +24,8 @@ import type {
   SystemAlertSettings,
 } from "./types";
 
-// Optional override lets verification run against a scratch DB instead of the
-// real one. Unset (production) => the same file every other module uses.
-const DB_DIR =
-  process.env.DEVPULSE_DB_DIR ?? path.join(process.cwd(), ".devpulse");
-const DB_PATH = path.join(DB_DIR, "telemetry.db");
-
 /** Marker key written once after first-run seeding from source config. */
 const SEED_MARKER = "seeded.v1";
-
-let db: DatabaseSync | null = null;
-
-/** Open (once) and prepare the database. Returns null on any failure. */
-function openDb(): DatabaseSync | null {
-  if (db) return db;
-  try {
-    mkdirSync(DB_DIR, { recursive: true });
-    const d = new DatabaseSync(DB_PATH);
-    d.exec(`
-      CREATE TABLE IF NOT EXISTS monitored_websites (
-        id TEXT PRIMARY KEY,
-        name TEXT NOT NULL,
-        url TEXT NOT NULL,
-        expectedStatus INTEGER,
-        enabled INTEGER NOT NULL DEFAULT 1,
-        createdAt INTEGER NOT NULL,
-        updatedAt INTEGER NOT NULL
-      );
-      CREATE TABLE IF NOT EXISTS monitored_repositories (
-        id TEXT PRIMARY KEY,
-        owner TEXT NOT NULL,
-        repo TEXT NOT NULL,
-        displayName TEXT,
-        enabled INTEGER NOT NULL DEFAULT 1,
-        createdAt INTEGER NOT NULL,
-        updatedAt INTEGER NOT NULL
-      );
-      CREATE UNIQUE INDEX IF NOT EXISTS idx_monitored_repositories_owner_repo
-        ON monitored_repositories (owner, repo);
-      CREATE TABLE IF NOT EXISTS app_settings (
-        key TEXT PRIMARY KEY,
-        value TEXT NOT NULL
-      );
-    `);
-    db = d;
-    return d;
-  } catch {
-    return null;
-  }
-}
 
 /* ------------------------------------------------------------------ *
  * First-run seeding from the historical source configuration.
@@ -86,7 +37,7 @@ function openDb(): DatabaseSync | null {
  * ------------------------------------------------------------------ */
 
 function seed(): void {
-  const d = openDb();
+  const d = getDb();
   if (!d) return;
   const now = Date.now();
   const insertSite = d.prepare(
@@ -150,7 +101,7 @@ function seed(): void {
  * marker keeps it to a single, idempotent pass. Never throws.
  */
 export function ensureSeeded(): void {
-  const d = openDb();
+  const d = getDb();
   if (!d) return;
   try {
     const marker = d
@@ -191,7 +142,7 @@ function siteFromRow(r: SiteRow): MonitoredWebsite {
 
 /** All configured websites (enabled or not). null => DB unavailable. */
 export function listWebsites(): MonitoredWebsite[] | null {
-  const d = openDb();
+  const d = getDb();
   if (!d) return null;
   try {
     const rows = d
@@ -230,7 +181,7 @@ function repoFromRow(r: RepoRow): MonitoredRepository {
 
 /** All configured repositories (enabled or not). null => DB unavailable. */
 export function listRepositories(): MonitoredRepository[] | null {
-  const d = openDb();
+  const d = getDb();
   if (!d) return null;
   try {
     const rows = d
@@ -246,7 +197,7 @@ export function listRepositories(): MonitoredRepository[] | null {
 }
 
 function readJsonSetting(key: string): unknown {
-  const d = openDb();
+  const d = getDb();
   if (!d) return null;
   try {
     const row = d
@@ -300,7 +251,7 @@ export function insertWebsite(input: {
   url: string;
   expectedStatus: number | null;
 }): MonitoredWebsite | null {
-  const d = openDb();
+  const d = getDb();
   if (!d) return null;
   const now = Date.now();
   const id = randomUUID();
@@ -334,7 +285,7 @@ export function updateWebsite(
     enabled?: boolean;
   },
 ): boolean {
-  const d = openDb();
+  const d = getDb();
   if (!d) return false;
   const now = Date.now();
   const sets: string[] = ["updatedAt = ?"];
@@ -368,7 +319,7 @@ export function updateWebsite(
 
 /** Remove a monitored website from config. History is intentionally kept. */
 export function deleteWebsite(id: string): boolean {
-  const d = openDb();
+  const d = getDb();
   if (!d) return false;
   try {
     const r = d.prepare(`DELETE FROM monitored_websites WHERE id = ?`).run(id);
@@ -387,7 +338,7 @@ export function insertRepository(input: {
   repo: string;
   displayName: string;
 }): MonitoredRepository | null {
-  const d = openDb();
+  const d = getDb();
   if (!d) return null;
   const now = Date.now();
   const owner = input.owner.trim();
@@ -422,7 +373,7 @@ export function updateRepository(
     enabled?: boolean;
   },
 ): boolean {
-  const d = openDb();
+  const d = getDb();
   if (!d) return false;
   const now = Date.now();
   const sets: string[] = ["updatedAt = ?"];
@@ -455,7 +406,7 @@ export function updateRepository(
 }
 
 export function deleteRepository(id: string): boolean {
-  const d = openDb();
+  const d = getDb();
   if (!d) return false;
   try {
     const r = d.prepare(`DELETE FROM monitored_repositories WHERE id = ?`).run(id);
@@ -470,7 +421,7 @@ export function deleteRepository(id: string): boolean {
  * ------------------------------------------------------------------ */
 
 export function writeSystemThresholds(s: SystemAlertSettings): boolean {
-  const d = openDb();
+  const d = getDb();
   if (!d) return false;
   try {
     const r = d
@@ -486,7 +437,7 @@ export function writeSystemThresholds(s: SystemAlertSettings): boolean {
 }
 
 export function writeAiBudgets(a: AiAlertSettings): boolean {
-  const d = openDb();
+  const d = getDb();
   if (!d) return false;
   try {
     const r = d

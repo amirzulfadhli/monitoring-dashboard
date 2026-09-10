@@ -1,6 +1,4 @@
-import path from "node:path";
-import { mkdirSync } from "node:fs";
-import { DatabaseSync } from "node:sqlite";
+import { getDb } from "@/lib/db";
 import type { RepoSnapshot } from "./github";
 import { maybePruneExpired } from "../maintenance";
 
@@ -15,9 +13,6 @@ import { maybePruneExpired } from "../maintenance";
  * GitHub payloads, tokens, commit bodies, or workflow logs are ever stored —
  * only the small health/status surface DevPulse relies on.
  */
-
-const DB_DIR = path.join(process.cwd(), ".devpulse");
-const DB_PATH = path.join(DB_DIR, "telemetry.db");
 
 /**
  * Minimum interval between *routine* snapshots of one repository. State changes
@@ -64,56 +59,6 @@ type Row = {
   lastPushMs: number | null;
 };
 
-let db: DatabaseSync | null = null;
-
-/**
- * The DB location, overridable for scratch/isolated verification so synthetic
- * test rows never touch the real telemetry database.
- */
-function dbPath(): string {
-  return process.env.DEVPULSE_DB_PATH
-    ? path.resolve(process.env.DEVPULSE_DB_PATH)
-    : DB_PATH;
-}
-
-/** Open (once) and prepare the database. Returns null on any failure. */
-function openDb(): DatabaseSync | null {
-  if (db) return db;
-  try {
-    mkdirSync(path.dirname(dbPath()), { recursive: true });
-    const d = new DatabaseSync(dbPath());
-    d.exec(`
-      CREATE TABLE IF NOT EXISTS github_snapshots (
-        ts INTEGER NOT NULL,          -- epoch ms snapshot taken
-        repoKey TEXT NOT NULL,        -- owner/repo
-        repoName TEXT NOT NULL,       -- repository slug
-        displayName TEXT NOT NULL,    -- human label for UI / alerts
-        state TEXT NOT NULL,          -- healthy | attention | running
-        commitSha TEXT,               -- latest commit short sha
-        commitDateMs INTEGER,         -- latest commit timestamp
-        openIssues INTEGER,           -- open issue count
-        openPrs INTEGER,              -- open PR count
-        workflowName TEXT,            -- latest workflow run name, if any
-        workflowStatus TEXT,          -- latest workflow status
-        workflowConclusion TEXT,      -- latest workflow conclusion
-        workflowBranch TEXT,          -- latest workflow head branch
-        lastPushMs INTEGER,           -- repository last_push time
-        PRIMARY KEY (repoKey, ts)
-      );
-      CREATE INDEX IF NOT EXISTS idx_github_snapshots_repo_ts
-        ON github_snapshots(repoKey, ts);
-      -- Cross-repo trailing-window reads (ts >= ?) and retention prune by ts,
-      -- which the (repoKey, ts) keys cannot serve without a full scan.
-      CREATE INDEX IF NOT EXISTS idx_github_snapshots_ts
-        ON github_snapshots(ts);
-    `);
-    db = d;
-    return d;
-  } catch {
-    return null;
-  }
-}
-
 function toSnapshot(r: Row): StoredGithubSnapshot {
   return {
     ts: r.ts,
@@ -143,7 +88,7 @@ function toSnapshot(r: Row): StoredGithubSnapshot {
  * Returns the number of new rows inserted. Never throws.
  */
 export function persistGithubSnapshots(repos: RepoSnapshot[]): number {
-  const d = openDb();
+  const d = getDb();
   if (!d) return 0;
   // Opportunistic retention (guarded to ~once/day). Prune deletes only rows
   // strictly older than the window, so the newest snapshot per repo — the one
@@ -219,7 +164,7 @@ export function persistGithubSnapshots(repos: RepoSnapshot[]): number {
  * failure — callers treat an empty result as "GitHub evaluation unavailable".
  */
 export function readLatestGithubSnapshots(): StoredGithubSnapshot[] {
-  const d = openDb();
+  const d = getDb();
   if (!d) return [];
   try {
     const rows = d
@@ -245,7 +190,7 @@ export function readGithubSnapshotHistory(
   repoKey: string,
   limit: number,
 ): StoredGithubSnapshot[] {
-  const d = openDb();
+  const d = getDb();
   if (!d) return [];
   const capped = Math.max(1, Math.min(Math.floor(limit) || 1, 500));
   try {
@@ -267,7 +212,7 @@ export function readGithubSnapshotHistory(
  * failure — never throws.
  */
 export function readGithubSnapshotsSince(since: number): StoredGithubSnapshot[] {
-  const d = openDb();
+  const d = getDb();
   if (!d) return [];
   try {
     const rows = d
