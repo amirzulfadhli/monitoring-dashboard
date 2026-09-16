@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import type { MonitoredRepository, MonitoredWebsite } from "@/lib/settings/types";
+import type { ApiMethod, MonitoredApi, MonitoredRepository, MonitoredWebsite } from "@/lib/settings/types";
+import { API_METHODS } from "@/lib/settings/types";
 
 /**
  * Settings page. Configures what DevPulse monitors and how it alerts. All
@@ -14,6 +15,7 @@ type Notice = { kind: "error" | "success"; text: string } | null;
 
 type Bundle = {
   websites: MonitoredWebsite[];
+  apis: MonitoredApi[];
   repositories: MonitoredRepository[];
   alerts: {
     system: { cpuWarnPct: number; cpuCritPct: number; memWarnPct: number; memCritPct: number };
@@ -125,6 +127,7 @@ export default function SettingsPage() {
       <Section title="Sources" subtitle="What DevPulse monitors. Removed sources keep their historical data.">
         <div className="space-y-8">
           <WebsitesSection sites={bundle.websites} onChanged={reload} setNotice={setNotice} />
+          <ApisSection apis={bundle.apis} onChanged={reload} setNotice={setNotice} />
           <ReposSection repos={bundle.repositories} onChanged={reload} setNotice={setNotice} />
         </div>
       </Section>
@@ -330,6 +333,202 @@ function WebsiteRow({
       </div>
       <div className="flex shrink-0 items-center gap-3">
         <Toggle checked={site.enabled} onChange={onToggle} label="Enabled" />
+        <RowControls onEdit={() => setEditing(true)} onRemove={onRemove} />
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ *
+ * API endpoints
+ *
+ * Same shape as websites, plus a method and a bounded timeout. No request
+ * bodies, headers or credentials exist in this configuration at all.
+ * ------------------------------------------------------------------ */
+
+const methodCls = `${inputCls} font-mono`;
+
+function ApisSection({
+  apis,
+  onChanged,
+  setNotice,
+}: {
+  apis: MonitoredApi[];
+  onChanged: () => void;
+  setNotice: (n: Notice) => void;
+}) {
+  const [adding, setAdding] = useState(false);
+  const [name, setName] = useState("");
+  const [url, setUrl] = useState("");
+  const [method, setMethod] = useState<ApiMethod>("GET");
+  const [expected, setExpected] = useState("");
+  const [timeoutMs, setTimeoutMs] = useState("");
+
+  const report = async (res: { ok: boolean; error?: string }, okText: string) => {
+    if (res.ok) {
+      setNotice({ kind: "success", text: okText });
+      onChanged();
+    } else {
+      setNotice({ kind: "error", text: res.error ?? "Request failed." });
+    }
+  };
+
+  const add = async () => {
+    const body: Record<string, string | number> = { name, url, method };
+    if (expected.trim() !== "") body.expectedStatus = Number(expected);
+    if (timeoutMs.trim() !== "") body.timeoutMs = Number(timeoutMs);
+    const res = await api("apis", "POST", body);
+    if (res.ok) {
+      setName("");
+      setUrl("");
+      setMethod("GET");
+      setExpected("");
+      setTimeoutMs("");
+      setAdding(false);
+    }
+    await report(res, "API endpoint added.");
+  };
+
+  const update = async (id: string, patch: Record<string, unknown>) => {
+    const res = await api("apis", "PUT", { id, ...patch });
+    await report(res, "API endpoint updated.");
+  };
+
+  const remove = async (id: string) => {
+    const res = await api(`apis?id=${encodeURIComponent(id)}`, "DELETE");
+    await report(res, "API endpoint removed. Its history is kept.");
+  };
+
+  return (
+    <div>
+      <h3 className="text-[11px] font-medium uppercase tracking-wider text-zinc-400 dark:text-zinc-500">API endpoints</h3>
+      <div className="mt-2 divide-y divide-zinc-100 dark:divide-zinc-900">
+        {apis.length === 0 && <p className="py-2 text-sm text-zinc-400 dark:text-zinc-500">No API endpoints monitored.</p>}
+        {apis.map((a) => (
+          <ApiRow
+            key={a.id}
+            apiMonitor={a}
+            onToggle={(v) => update(a.id, { enabled: v })}
+            onUpdate={(patch) => update(a.id, patch)}
+            onRemove={() => remove(a.id)}
+          />
+        ))}
+      </div>
+
+      {adding ? (
+        <div className="mt-3 grid grid-cols-1 gap-3 rounded-md border border-zinc-200 p-3 dark:border-zinc-800 md:grid-cols-[1fr_1.4fr_0.7fr_0.7fr_0.7fr_auto]">
+          <div>
+            <label className={labelCls}>Name</label>
+            <input className={inputCls} value={name} onChange={(e) => setName(e.target.value)} placeholder="Health endpoint" />
+          </div>
+          <div>
+            <label className={labelCls}>URL</label>
+            <input className={inputCls} value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://api.example.com/health" />
+          </div>
+          <div>
+            <label className={labelCls}>Method</label>
+            <select className={methodCls} value={method} onChange={(e) => setMethod(e.target.value as ApiMethod)}>
+              {API_METHODS.map((m) => (
+                <option key={m} value={m}>{m}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className={labelCls}>Expected status</label>
+            <input className={inputCls} value={expected} onChange={(e) => setExpected(e.target.value)} placeholder="200" inputMode="numeric" />
+          </div>
+          <div>
+            <label className={labelCls}>Timeout (ms)</label>
+            <input className={inputCls} value={timeoutMs} onChange={(e) => setTimeoutMs(e.target.value)} placeholder="8000" inputMode="numeric" />
+          </div>
+          <div className="flex items-end gap-2">
+            <button type="button" onClick={add} className={btnPrimary}>Add</button>
+            <button type="button" onClick={() => setAdding(false)} className={btnCls}>Cancel</button>
+          </div>
+        </div>
+      ) : (
+        <button type="button" onClick={() => setAdding(true)} className={`${btnPrimary} mt-3`}>
+          + Add API endpoint
+        </button>
+      )}
+    </div>
+  );
+}
+
+function ApiRow({
+  apiMonitor,
+  onToggle,
+  onUpdate,
+  onRemove,
+}: {
+  apiMonitor: MonitoredApi;
+  onToggle: (v: boolean) => void;
+  onUpdate: (patch: Record<string, unknown>) => void;
+  onRemove: () => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [name, setName] = useState(apiMonitor.name);
+  const [url, setUrl] = useState(apiMonitor.url);
+  const [method, setMethod] = useState<ApiMethod>(apiMonitor.method);
+  const [expected, setExpected] = useState(
+    apiMonitor.expectedStatus != null ? String(apiMonitor.expectedStatus) : "",
+  );
+  const [timeoutMs, setTimeoutMs] = useState(
+    apiMonitor.timeoutMs != null ? String(apiMonitor.timeoutMs) : "",
+  );
+
+  const save = () => {
+    onUpdate({
+      name,
+      url,
+      method,
+      expectedStatus: expected.trim() === "" ? null : Number(expected),
+      timeoutMs: timeoutMs.trim() === "" ? null : Number(timeoutMs),
+    });
+    setEditing(false);
+  };
+
+  if (editing) {
+    return (
+      <div className="grid grid-cols-1 gap-3 py-3 md:grid-cols-[1fr_1.4fr_0.7fr_0.7fr_0.7fr_auto]">
+        <div><label className={labelCls}>Name</label><input className={inputCls} value={name} onChange={(e) => setName(e.target.value)} /></div>
+        <div><label className={labelCls}>URL</label><input className={inputCls} value={url} onChange={(e) => setUrl(e.target.value)} /></div>
+        <div>
+          <label className={labelCls}>Method</label>
+          <select className={methodCls} value={method} onChange={(e) => setMethod(e.target.value as ApiMethod)}>
+            {API_METHODS.map((m) => (
+              <option key={m} value={m}>{m}</option>
+            ))}
+          </select>
+        </div>
+        <div><label className={labelCls}>Expected status</label><input className={inputCls} value={expected} onChange={(e) => setExpected(e.target.value)} /></div>
+        <div><label className={labelCls}>Timeout (ms)</label><input className={inputCls} value={timeoutMs} onChange={(e) => setTimeoutMs(e.target.value)} /></div>
+        <div className="flex items-end gap-2">
+          <button type="button" onClick={save} className={btnPrimary}>Save</button>
+          <button type="button" onClick={() => setEditing(false)} className={btnCls}>Cancel</button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex items-center justify-between gap-3 py-2.5">
+      <div className="min-w-0">
+        <div className="flex items-center gap-2">
+          <p className="truncate text-sm font-medium text-zinc-900 dark:text-zinc-50">{apiMonitor.name}</p>
+          <span className="rounded bg-zinc-100 px-1.5 py-0.5 font-mono text-[10px] text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400">
+            {apiMonitor.method}
+          </span>
+          {!apiMonitor.enabled && <span className="rounded bg-zinc-100 px-1.5 py-0.5 text-[10px] uppercase text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400">off</span>}
+        </div>
+        <p className="truncate font-mono text-xs text-zinc-400 dark:text-zinc-500">{apiMonitor.url}</p>
+        <p className="text-[11px] text-zinc-400 dark:text-zinc-500">
+          expects HTTP {apiMonitor.expectedStatus ?? 200}
+          {apiMonitor.timeoutMs != null ? ` · ${apiMonitor.timeoutMs}ms timeout` : ""}
+        </p>
+      </div>
+      <div className="flex shrink-0 items-center gap-3">
+        <Toggle checked={apiMonitor.enabled} onChange={onToggle} label="Enabled" />
         <RowControls onEdit={() => setEditing(true)} onRemove={onRemove} />
       </div>
     </div>

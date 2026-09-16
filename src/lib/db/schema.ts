@@ -7,7 +7,8 @@
  *   0 = a database created before versioning existed (the schema is already
  *       present — migration 1 adopts it via idempotent `IF NOT EXISTS` DDL and
  *       only records the version), or a brand-new/empty file.
- *   1 = the current schema.
+ *   1 = the consolidated baseline schema.
+ *   2 = API endpoint monitoring (monitored_apis config + api_checks history).
  *
  * Every migration must be additive and idempotent: DevPulse never drops tables,
  * deletes rows, or recreates the database. A database whose version is *newer*
@@ -17,7 +18,7 @@
 import type { DatabaseSync } from "node:sqlite";
 
 /** Current schema version. Bump when adding a migration below. */
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 2;
 
 /** Add a column to a table only if it does not exist yet (idempotent, additive). */
 function addColumn(
@@ -239,9 +240,49 @@ function migration1(d: DatabaseSync): void {
   );
 }
 
+/**
+ * Version 2 — API endpoint monitoring. Additive only: two new tables, no
+ * existing table, index or row is touched, so a version-1 database upgrades in
+ * place and a version-0 one runs migration 1 then this.
+ */
+function migration2(d: DatabaseSync): void {
+  d.exec(`
+    CREATE TABLE IF NOT EXISTS monitored_apis (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      url TEXT NOT NULL,
+      method TEXT NOT NULL DEFAULT 'GET',   -- GET | HEAD | POST
+      expectedStatus INTEGER,               -- null => 200
+      timeoutMs INTEGER,                    -- null => the monitor default
+      enabled INTEGER NOT NULL DEFAULT 1,
+      createdAt INTEGER NOT NULL,
+      updatedAt INTEGER NOT NULL
+    );
+  `);
+
+  d.exec(`
+    CREATE TABLE IF NOT EXISTS api_checks (
+      ts INTEGER,                    -- epoch ms
+      targetId TEXT,
+      state TEXT,                    -- healthy | degraded | down
+      httpStatus INTEGER,            -- null when unreachable
+      latencyMs REAL,                -- response latency, null on failure
+      errorType TEXT,                -- timeout | network | unexpected_status | bad_config
+      error TEXT,
+      PRIMARY KEY (ts, targetId)
+    );
+    -- Same reasoning as website_checks: ts leads the PK so range reads and
+    -- retention scan by timestamp; this secondary index serves latest-per-target
+    -- reads (alert evaluation) and per-target History queries.
+    CREATE INDEX IF NOT EXISTS idx_api_checks_target_ts
+      ON api_checks(targetId, ts);
+  `);
+}
+
 /** Ordered migrations. Each entry moves the database from version-1 to its own. */
 const MIGRATIONS: { version: number; up: (d: DatabaseSync) => void }[] = [
   { version: 1, up: migration1 },
+  { version: 2, up: migration2 },
 ];
 
 function getUserVersion(d: DatabaseSync): number {

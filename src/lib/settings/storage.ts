@@ -19,6 +19,8 @@ import { monitoredRepos } from "@/data/monitored-repos";
 import { alertConfig } from "@/lib/alerts/config";
 import type {
   AiAlertSettings,
+  ApiMethod,
+  MonitoredApi,
   MonitoredRepository,
   MonitoredWebsite,
   SystemAlertSettings,
@@ -193,6 +195,157 @@ export function listRepositories(): MonitoredRepository[] | null {
     return rows.map(repoFromRow);
   } catch {
     return null;
+  }
+}
+
+type ApiRow = {
+  id: string;
+  name: string;
+  url: string;
+  method: string;
+  expectedStatus: number | null;
+  timeoutMs: number | null;
+  enabled: number;
+  createdAt: number;
+  updatedAt: number;
+};
+
+function apiFromRow(r: ApiRow): MonitoredApi {
+  return {
+    id: r.id,
+    name: r.name,
+    url: r.url,
+    method: r.method as ApiMethod,
+    expectedStatus: r.expectedStatus,
+    timeoutMs: r.timeoutMs,
+    enabled: !!r.enabled,
+    createdAt: r.createdAt,
+    updatedAt: r.updatedAt,
+  };
+}
+
+/** All configured API monitors (enabled or not). null => DB unavailable. */
+export function listApis(): MonitoredApi[] | null {
+  const d = getDb();
+  if (!d) return null;
+  try {
+    const rows = d
+      .prepare(
+        `SELECT id, name, url, method, expectedStatus, timeoutMs, enabled, createdAt, updatedAt
+           FROM monitored_apis ORDER BY createdAt ASC, id ASC`,
+      )
+      .all() as unknown as ApiRow[];
+    return rows.map(apiFromRow);
+  } catch {
+    return null;
+  }
+}
+
+export function insertApi(input: {
+  name: string;
+  url: string;
+  method: ApiMethod;
+  expectedStatus: number | null;
+  timeoutMs: number | null;
+}): MonitoredApi | null {
+  const d = getDb();
+  if (!d) return null;
+  const now = Date.now();
+  const id = randomUUID();
+  const name = input.name.trim();
+  const url = input.url.trim();
+  try {
+    d.prepare(
+      `INSERT INTO monitored_apis
+         (id, name, url, method, expectedStatus, timeoutMs, enabled, createdAt, updatedAt)
+       VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)`,
+    ).run(
+      id,
+      name,
+      url,
+      input.method,
+      input.expectedStatus,
+      input.timeoutMs,
+      now,
+      now,
+    );
+    return apiFromRow({
+      id,
+      name,
+      url,
+      method: input.method,
+      expectedStatus: input.expectedStatus,
+      timeoutMs: input.timeoutMs,
+      enabled: 1,
+      createdAt: now,
+      updatedAt: now,
+    });
+  } catch {
+    return null;
+  }
+}
+
+/** Update any subset of an API monitor's fields. */
+export function updateApi(
+  id: string,
+  patch: {
+    name?: string;
+    url?: string;
+    method?: ApiMethod;
+    expectedStatus?: number | null;
+    timeoutMs?: number | null;
+    enabled?: boolean;
+  },
+): boolean {
+  const d = getDb();
+  if (!d) return false;
+  const now = Date.now();
+  const sets: string[] = ["updatedAt = ?"];
+  const args: (string | number | null)[] = [now];
+  if (patch.name !== undefined) {
+    sets.push("name = ?");
+    args.push(patch.name.trim());
+  }
+  if (patch.url !== undefined) {
+    sets.push("url = ?");
+    args.push(patch.url.trim());
+  }
+  if (patch.method !== undefined) {
+    sets.push("method = ?");
+    args.push(patch.method);
+  }
+  if (patch.expectedStatus !== undefined) {
+    sets.push("expectedStatus = ?");
+    args.push(patch.expectedStatus);
+  }
+  if (patch.timeoutMs !== undefined) {
+    sets.push("timeoutMs = ?");
+    args.push(patch.timeoutMs);
+  }
+  if (patch.enabled !== undefined) {
+    sets.push("enabled = ?");
+    args.push(patch.enabled ? 1 : 0);
+  }
+  args.push(id);
+  try {
+    const r = d
+      .prepare(`UPDATE monitored_apis SET ${sets.join(", ")} WHERE id = ?`)
+      .run(...args);
+    return Number(r.changes) > 0;
+  } catch {
+    return false;
+  }
+}
+
+/** Remove an API monitor from config. Its check history is intentionally kept. */
+export function deleteApi(id: string): boolean {
+  const d = getDb();
+  if (!d) return false;
+  try {
+    const r = d.prepare(`DELETE FROM monitored_apis WHERE id = ?`).run(id);
+    return Number(r.changes) > 0;
+  } catch {
+    return false;
   }
 }
 

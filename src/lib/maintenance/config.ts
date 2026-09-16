@@ -6,6 +6,7 @@
  * a local, single-machine tool:
  *   - telemetry (`history`): 30d keeps the 24H / 7D / 30D UI ranges intact.
  *   - website checks:         30d
+ *   - API checks:             30d
  *   - AI usage:               90d  (transcript cursor, not rows, guarantees
  *                                   Claude Code idempotency — see index.ts)
  *   - GitHub snapshots:       90d
@@ -16,6 +17,7 @@ const DAY_MS = 86_400_000;
 export const RETENTION_MS = {
   telemetry: 30 * DAY_MS, // history table — must stay >= 30d for the 30D UI range
   websiteChecks: 30 * DAY_MS,
+  apiChecks: 30 * DAY_MS,
   aiUsage: 90 * DAY_MS,
   githubSnapshots: 90 * DAY_MS,
 } as const;

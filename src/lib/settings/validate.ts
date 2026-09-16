@@ -15,6 +15,8 @@
 import { lookup } from "node:dns/promises";
 import { isIP } from "node:net";
 
+import { API_METHODS } from "./types";
+
 /* ------------------------------------------------------------------ *
  * IP classification (no dependency; only obvious private/loopback ranges)
  * ------------------------------------------------------------------ */
@@ -134,6 +136,55 @@ export function validateWebsiteFields(input: {
   if (byName) return Promise.resolve(byName);
   const byStatus = validateExpectedStatus(input.expectedStatus);
   if (byStatus) return Promise.resolve(byStatus);
+  return validateWebsiteUrl(input.url);
+}
+
+/* ------------------------------------------------------------------ *
+ * API endpoint monitors
+ *
+ * The same trust boundary as websites applies: a URL typed into Settings is
+ * later fetched server-side, so it goes through the identical SSRF check. The
+ * request surface stays deliberately narrow — a method from a fixed allow-list,
+ * no body, no headers, no credentials.
+ * ------------------------------------------------------------------ */
+
+/** Per-request timeout bounds for API checks. */
+export const MIN_API_TIMEOUT_MS = 1_000;
+export const MAX_API_TIMEOUT_MS = 30_000;
+
+export function validateApiMethod(method: unknown): string | null {
+  if (typeof method !== "string") return "Method is required.";
+  if (!(API_METHODS as readonly string[]).includes(method.toUpperCase())) {
+    return `Method must be one of ${API_METHODS.join(", ")}.`;
+  }
+  return null;
+}
+
+export function validateApiTimeout(v: number | null | undefined): string | null {
+  if (v == null) return null; // null means "use the monitor default"
+  if (!Number.isInteger(v) || v < MIN_API_TIMEOUT_MS || v > MAX_API_TIMEOUT_MS) {
+    return `Timeout must be an integer between ${MIN_API_TIMEOUT_MS} and ${MAX_API_TIMEOUT_MS} ms.`;
+  }
+  return null;
+}
+
+export function validateApiFields(input: {
+  name: string;
+  url: string;
+  method: string;
+  expectedStatus?: number | null;
+  timeoutMs?: number | null;
+}): Promise<string | null> {
+  const byName = validateWebsiteName(input.name);
+  if (byName) return Promise.resolve(byName);
+  const byMethod = validateApiMethod(input.method);
+  if (byMethod) return Promise.resolve(byMethod);
+  const byStatus = validateExpectedStatus(input.expectedStatus);
+  if (byStatus) return Promise.resolve(byStatus);
+  const byTimeout = validateApiTimeout(input.timeoutMs);
+  if (byTimeout) return Promise.resolve(byTimeout);
+  // Same SSRF rules as a monitored website: no loopback / link-local / private
+  // destination, literal or via DNS.
   return validateWebsiteUrl(input.url);
 }
 

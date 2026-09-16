@@ -13,11 +13,13 @@
 
 import { monitoredSites } from "@/data/monitored-sites";
 import { monitoredRepos } from "@/data/monitored-repos";
-import { listRepositories, listWebsites } from "@/lib/settings/storage";
+import { listApis, listRepositories, listWebsites } from "@/lib/settings/storage";
 import { readAlerts } from "@/lib/alerts/storage";
 import type { AlertRecord } from "@/lib/alerts/model";
 import { readWebsiteChecks } from "@/lib/monitoring/storage";
 import type { StoredWebsiteCheck } from "@/lib/monitoring/storage";
+import { readApiChecks } from "@/lib/monitoring/api-storage";
+import type { StoredApiCheck } from "@/lib/monitoring/api-storage";
 import { readGithubSnapshotsSince } from "@/lib/monitoring/github-snapshots";
 import type { StoredGithubSnapshot } from "@/lib/monitoring/github-snapshots";
 import { readUsageRowsSince } from "@/lib/monitoring/ai-storage";
@@ -52,6 +54,11 @@ export function buildTimeline(range: HistoryRangeKey): TimelineEvent[] {
     events.push(...websiteEvents(readWebsiteChecks(since), names));
   } catch {
     /* website slice unavailable */
+  }
+  try {
+    events.push(...apiEvents(readApiChecks(since), names));
+  } catch {
+    /* api slice unavailable */
   }
   try {
     events.push(...githubEvents(readGithubSnapshotsSince(since), names));
@@ -179,14 +186,25 @@ function ev(
  */
 type NameLookup = {
   site(targetId: string): string;
+  api(targetId: string): string;
   repo(repoKey: string, snap: StoredGithubSnapshot): string;
 };
 
 function createNameLookup(): NameLookup {
   let sites: Map<string, string> | null = null;
+  let apis: Map<string, string> | null = null;
   let repos: Map<string, string> | null = null;
 
   return {
+    api(targetId) {
+      // API monitors have no seeded fallback list, so the persisted settings
+      // store is the only name source; a removed monitor falls back to its id.
+      if (!apis) {
+        apis = new Map();
+        for (const a of listApis() ?? []) apis.set(a.id, a.name);
+      }
+      return apis.get(targetId) ?? targetId;
+    },
     site(targetId) {
       if (!sites) {
         sites = new Map();
@@ -338,6 +356,48 @@ function websiteEvents(
           r.targetId,
           r.ts,
           sev,
+          `${name} → ${r.state}`,
+          `Transitioned from ${prev} to ${r.state}` +
+            (r.latencyMs != null ? ` · ${r.latencyMs.toFixed(0)}ms` : "") +
+            (r.httpStatus != null ? ` · HTTP ${r.httpStatus}` : ""),
+          {
+            targetId: r.targetId,
+            from: prev,
+            state: r.state,
+            latencyMs: r.latencyMs,
+            httpStatus: r.httpStatus,
+          },
+        ),
+      );
+    }
+    last.set(r.targetId, r.state);
+  }
+  return events;
+}
+
+/* ------------------------------------------------------------------ *
+ * API endpoints (state transitions only — never one event per poll)
+ * ------------------------------------------------------------------ */
+
+function apiEvents(rows: StoredApiCheck[], names: NameLookup): TimelineEvent[] {
+  const events: TimelineEvent[] = [];
+  if (rows.length === 0) return events;
+
+  // Same derivation as websites: the first in-range row is a baseline, and only
+  // a later change of state emits an event.
+  const last = new Map<string, string>();
+
+  for (const r of rows) {
+    const prev = last.get(r.targetId);
+    if (prev !== undefined && prev !== r.state) {
+      const name = names.api(r.targetId);
+      events.push(
+        ev(
+          "api",
+          "api_state",
+          r.targetId,
+          r.ts,
+          STATE_SEV[r.state],
           `${name} → ${r.state}`,
           `Transitioned from ${prev} to ${r.state}` +
             (r.latencyMs != null ? ` · ${r.latencyMs.toFixed(0)}ms` : "") +

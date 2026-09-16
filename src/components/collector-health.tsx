@@ -27,6 +27,7 @@ const stateDot: Record<CollectorState, string> = {
 const COLLECTOR_LABELS: Record<JobName, string> = {
   telemetry: "Telemetry",
   websites: "Websites",
+  apis: "APIs",
   github: "GitHub",
   alerts: "Alerts",
 };

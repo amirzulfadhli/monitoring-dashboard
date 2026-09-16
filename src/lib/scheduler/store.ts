@@ -11,6 +11,7 @@
  */
 import type { TelemetrySnapshot } from "@/lib/telemetry";
 import type { CheckResult } from "@/lib/monitoring/websites";
+import type { ApiCheckResult } from "@/lib/monitoring/apis";
 import type { GitHubResult } from "@/lib/monitoring/github";
 import type { JobName } from "./model";
 
@@ -24,6 +25,7 @@ export type SchedulerStore = {
   jobs: Record<JobName, JobRuntime>;
   telemetry: Latest<TelemetrySnapshot> | null;
   websites: Latest<CheckResult[]> | null;
+  apis: Latest<ApiCheckResult[]> | null;
   github: Latest<GitHubResult> | null;
 };
 
@@ -79,11 +81,13 @@ export function getStore(): SchedulerStore {
       jobs: {
         telemetry: emptyJob(),
         websites: emptyJob(),
+        apis: emptyJob(),
         github: emptyJob(),
         alerts: emptyJob(),
       },
       telemetry: null,
       websites: null,
+      apis: null,
       github: null,
     };
   }
@@ -98,6 +102,11 @@ export function getLatestTelemetry(): Latest<TelemetrySnapshot> | null {
 /** Latest scheduler-collected website check results. */
 export function getLatestWebsites(): Latest<CheckResult[]> | null {
   return getStore().websites;
+}
+
+/** Latest scheduler-collected API check results. */
+export function getLatestApis(): Latest<ApiCheckResult[]> | null {
+  return getStore().apis;
 }
 
 /** Latest scheduler-collected GitHub monitor result. */

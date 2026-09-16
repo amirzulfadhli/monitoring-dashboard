@@ -23,6 +23,7 @@ const sevText: Record<Severity, string> = {
 const sourceLabel: Record<string, string> = {
   system: "System",
   websites: "Websites",
+  apis: "APIs",
   github: "GitHub",
   ai: "AI",
 };

@@ -14,6 +14,7 @@
 import { DAY_MS } from "./config";
 import {
   getAiSettings,
+  getEnabledApis,
   getEnabledSites,
   getEnabledRepos,
   getSystemSettings,
@@ -21,11 +22,13 @@ import {
 import { readAlerts, readCounts, applyVerdict } from "./storage";
 import { readSystemSamples } from "@/lib/telemetry/storage";
 import { readLatestWebsiteChecks } from "@/lib/monitoring/storage";
+import { readLatestApiChecks } from "@/lib/monitoring/api-storage";
 import { readLatestGithubSnapshots } from "@/lib/monitoring/github-snapshots";
 import { readAiUsage } from "@/lib/monitoring/ai-storage";
 import {
   evaluateSystem,
   evaluateWebsites,
+  evaluateApis,
   evaluateGithub,
   evaluateAi,
 } from "./rules";
@@ -79,6 +82,26 @@ async function runEvaluation(at: number): Promise<void> {
     for (const v of evaluateWebsites(obs)) applyVerdict(v, at);
   } catch {
     // Website source failure is isolated.
+  }
+
+  // ---- api endpoints (persisted latest checks; no duplicate request) ----
+  try {
+    // Same rule as websites: only currently-enabled monitors are evaluated, so
+    // disabling one stops its alerts without deleting its history.
+    const enabled = getEnabledApis();
+    const enabledIds = new Set(enabled.map((a) => a.id));
+    const nameOf = new Map(enabled.map((a) => [a.id, a.name]));
+    const obs = readLatestApiChecks()
+      .filter((c) => enabledIds.has(c.targetId))
+      .map((c) => ({
+        targetId: c.targetId,
+        name: nameOf.get(c.targetId) ?? c.targetId,
+        state: c.state,
+        latencyMs: c.latencyMs,
+      }));
+    for (const v of evaluateApis(obs)) applyVerdict(v, at);
+  } catch {
+    // API source failure is isolated.
   }
 
   // ---- github (evaluate from the latest persisted snapshot; no live fetch) ----

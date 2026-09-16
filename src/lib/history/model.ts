@@ -13,6 +13,7 @@ export type TimelineSource =
   | "system"
   | "network"
   | "website"
+  | "api"
   | "github"
   | "ai"
   | "alert";
@@ -56,6 +57,7 @@ export const HISTORY_SOURCES = [
   "all",
   "system",
   "website",
+  "api",
   "github",
   "ai",
   "alert",

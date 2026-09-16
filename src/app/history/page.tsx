@@ -21,6 +21,7 @@ const SOURCE_TABS: { key: HistorySourceKey; label: string }[] = [
   { key: "all", label: "All" },
   { key: "system", label: "System" },
   { key: "website", label: "Websites" },
+  { key: "api", label: "APIs" },
   { key: "github", label: "GitHub" },
   { key: "ai", label: "AI" },
   { key: "alert", label: "Alerts" },
@@ -30,6 +31,7 @@ const sourceLabel: Record<TimelineSource, string> = {
   system: "System",
   network: "System",
   website: "Websites",
+  api: "APIs",
   github: "GitHub",
   ai: "AI",
   alert: "Alert",
@@ -39,6 +41,7 @@ const sourceChip: Record<string, string> = {
   system: "text-zinc-500 dark:text-zinc-400",
   network: "text-zinc-500 dark:text-zinc-400",
   website: "text-sky-600 dark:text-sky-400",
+  api: "text-teal-600 dark:text-teal-400",
   github: "text-violet-600 dark:text-violet-400",
   ai: "text-amber-600 dark:text-amber-400",
   alert: "text-red-600 dark:text-red-400",
@@ -152,8 +155,8 @@ export default function HistoryPage() {
           History
         </h1>
         <p className="mt-0.5 text-sm text-zinc-500 dark:text-zinc-400">
-          Chronological events from monitored sources — websites, GitHub, AI usage, alerts and
-          system telemetry.
+          Chronological events from monitored sources — websites, API endpoints, GitHub, AI
+          usage, alerts and system telemetry.
         </p>
       </div>
 

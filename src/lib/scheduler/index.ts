@@ -9,6 +9,7 @@
  *
  *   telemetry job    ~30s   collectTelemetry()          + persistSnapshot()
  *   websites job     ~60s   getWebsiteResults()         (persists internally)
+ *   apis job         ~60s   getApiResults()             (persists internally)
  *   github job       ~90s   getGitHubResult()           + persistGithubSnapshots()
  *   alerts job       ~60s   evaluateAlerts()            + opportunistic retention
  *
@@ -25,6 +26,7 @@
 import { collectTelemetry } from "@/lib/telemetry";
 import { persistSnapshot } from "@/lib/telemetry/storage";
 import { getWebsiteResults } from "@/lib/monitoring/websites";
+import { getApiResults } from "@/lib/monitoring/apis";
 import { getGitHubResult } from "@/lib/monitoring/github";
 import { persistGithubSnapshots } from "@/lib/monitoring/github-snapshots";
 import { evaluateAlerts } from "@/lib/alerts/engine";
@@ -47,6 +49,7 @@ import { getStore, type JobRuntime, type SchedulerStore } from "./store";
 const START_DELAY_MS: Record<JobName, number> = {
   telemetry: 2_000,
   websites: 6_000,
+  apis: 8_000,
   github: 10_000,
   alerts: 15_000,
 };
@@ -93,6 +96,16 @@ const JOBS: JobDef[] = [
       // independently; one failing site never blocks the others.
       const results = await getWebsiteResults();
       store.websites = { value: results, at: Date.now() };
+    },
+  },
+  {
+    name: "apis",
+    async run(store) {
+      // Checks only currently-enabled endpoints and persists each result
+      // independently; one failing endpoint never blocks the others. With no
+      // configured endpoints this is a cheap no-op.
+      const results = await getApiResults();
+      store.apis = { value: results, at: Date.now() };
     },
   },
   {

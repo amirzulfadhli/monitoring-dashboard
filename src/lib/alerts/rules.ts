@@ -148,6 +148,43 @@ export function evaluateWebsites(targets: WebsiteObs[]): RuleVerdict[] {
   return out;
 }
 
+/* -------------------------------- apis -------------------------------- */
+
+export type ApiObs = {
+  targetId: string;
+  name: string;
+  state: "healthy" | "degraded" | "down";
+  latencyMs: number | null;
+};
+
+/**
+ * One rule per endpoint: an API endpoint is either failing (unexpected status,
+ * timeout, network/DNS error — all of which the monitor records as "down") or it
+ * is not. Deliberately no degraded-latency rule, matching websites: latency
+ * alone is reported on the APIs page, never alerted on.
+ */
+export function evaluateApis(targets: ApiObs[]): RuleVerdict[] {
+  const out: RuleVerdict[] = [];
+  for (const t of targets) {
+    const down = t.state === "down";
+    out.push(
+      mk(
+        "apis",
+        RULES.API_DOWN,
+        `apis:down:${t.targetId}`,
+        "critical",
+        "API endpoint down",
+        down
+          ? `${t.name} is failing — unexpected status, timeout or unreachable.`
+          : `${t.name} is responding as expected.`,
+        down,
+        { api: t.name },
+      ),
+    );
+  }
+  return out;
+}
+
 /* ------------------------------ github ------------------------------ */
 
 export type GithubObs = {

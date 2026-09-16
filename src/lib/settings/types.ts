@@ -20,6 +20,24 @@ export type MonitoredWebsite = {
   updatedAt: number; // epoch ms
 };
 
+/** HTTP methods an API monitor may use. No request bodies are ever sent. */
+export const API_METHODS = ["GET", "HEAD", "POST"] as const;
+export type ApiMethod = (typeof API_METHODS)[number];
+
+export type MonitoredApi = {
+  id: string;
+  name: string;
+  url: string;
+  method: ApiMethod;
+  /** HTTP status that counts as Healthy. Null => the default (200). */
+  expectedStatus: number | null;
+  /** Per-request timeout in ms. Null => the monitor default. */
+  timeoutMs: number | null;
+  enabled: boolean;
+  createdAt: number; // epoch ms
+  updatedAt: number; // epoch ms
+};
+
 export type MonitoredRepository = {
   id: string;
   owner: string;
@@ -53,6 +71,7 @@ export type AlertSettings = {
 /** Full configuration bundle served to the Settings page. */
 export type SettingsBundle = {
   websites: MonitoredWebsite[];
+  apis: MonitoredApi[];
   repositories: MonitoredRepository[];
   alerts: AlertSettings;
   integrations: { github: boolean; deepseek: boolean };

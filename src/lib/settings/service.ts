@@ -9,17 +9,22 @@
 import { monitoredSites, type MonitoredSite } from "@/data/monitored-sites";
 import { monitoredRepos, type MonitoredRepo } from "@/data/monitored-repos";
 import { alertConfig } from "@/lib/alerts/config";
+import type { ApiTarget } from "@/lib/monitoring/apis";
 
 import {
+  deleteApi,
   deleteRepository,
   deleteWebsite,
   ensureSeeded,
+  insertApi,
   insertRepository,
   insertWebsite,
+  listApis,
   listRepositories,
   listWebsites,
   readAiBudgets,
   readSystemThresholds,
+  updateApi,
   updateRepository,
   updateWebsite,
   writeAiBudgets,
@@ -28,6 +33,8 @@ import {
 import type {
   AiAlertSettings,
   AlertSettings,
+  ApiMethod,
+  MonitoredApi,
   MonitoredRepository,
   MonitoredWebsite,
   SettingsBundle,
@@ -35,6 +42,7 @@ import type {
 } from "./types";
 import {
   validateAlertInput,
+  validateApiFields,
   validateOwnerRepo,
   validateWebsiteFields,
 } from "./validate";
@@ -67,6 +75,27 @@ export function getEnabledSites(): MonitoredSite[] {
   const all = listWebsites();
   if (all === null) return monitoredSites.map((s) => ({ ...s }));
   return all.filter((w) => w.enabled).map(toMonitorSite);
+}
+
+function toApiTarget(a: MonitoredApi): ApiTarget {
+  return {
+    id: a.id,
+    name: a.name,
+    url: a.url,
+    method: a.method,
+    ...(a.expectedStatus != null ? { expectedStatus: a.expectedStatus } : {}),
+    ...(a.timeoutMs != null ? { timeoutMs: a.timeoutMs } : {}),
+  };
+}
+
+/**
+ * Enabled API endpoints to monitor. There is no source-seeded fallback list for
+ * APIs, so an unavailable DB yields [] (nothing is checked) rather than
+ * inventing targets; an available-but-empty store means the same thing.
+ */
+export function getEnabledApis(): ApiTarget[] {
+  ensureSeeded();
+  return (listApis() ?? []).filter((a) => a.enabled).map(toApiTarget);
 }
 
 function toMonitorRepo(r: MonitoredRepository): MonitoredRepo {
@@ -128,6 +157,7 @@ export function getSettingsBundle(): SettingsBundle {
   ensureSettingsSeeded();
   return {
     websites: listWebsites() ?? [],
+    apis: listApis() ?? [],
     repositories: listRepositories() ?? [],
     alerts: { system: getSystemSettings(), ai: getAiSettings() },
     integrations: {
@@ -196,6 +226,83 @@ export async function updateWebsiteFields(
 
 export function removeWebsite(id: string): MutateResult {
   return deleteWebsite(id) ? { ok: true } : fail("Could not remove the website.");
+}
+
+/* ------------------------------- API monitors ------------------------------ */
+
+export async function createApi(input: {
+  name: string;
+  url: string;
+  method: string;
+  expectedStatus?: number | null;
+  timeoutMs?: number | null;
+}): Promise<MutateResult> {
+  const err = await validateApiFields({
+    name: input.name,
+    url: input.url,
+    method: input.method,
+    expectedStatus: input.expectedStatus ?? null,
+    timeoutMs: input.timeoutMs ?? null,
+  });
+  if (err) return fail(err);
+  const created = insertApi({
+    name: input.name,
+    url: input.url,
+    method: input.method.toUpperCase() as ApiMethod,
+    expectedStatus: input.expectedStatus ?? null,
+    timeoutMs: input.timeoutMs ?? null,
+  });
+  return created ? { ok: true } : fail("Could not save the API monitor.");
+}
+
+export async function updateApiFields(
+  id: string,
+  patch: {
+    name?: string;
+    url?: string;
+    method?: string;
+    expectedStatus?: number | null;
+    timeoutMs?: number | null;
+    enabled?: boolean;
+  },
+): Promise<MutateResult> {
+  // As with websites: only identity fields are re-validated, so an
+  // enable/disable toggle never re-runs URL validation (and its DNS lookup).
+  const identityChanged =
+    patch.name !== undefined ||
+    patch.url !== undefined ||
+    patch.method !== undefined ||
+    patch.expectedStatus !== undefined ||
+    patch.timeoutMs !== undefined;
+  if (identityChanged) {
+    const current = (listApis() ?? []).find((a) => a.id === id);
+    if (!current) return fail("API monitor not found.");
+    const err = await validateApiFields({
+      name: patch.name ?? current.name,
+      url: patch.url ?? current.url,
+      method: patch.method ?? current.method,
+      expectedStatus:
+        patch.expectedStatus !== undefined ? patch.expectedStatus : current.expectedStatus,
+      timeoutMs: patch.timeoutMs !== undefined ? patch.timeoutMs : current.timeoutMs,
+    });
+    if (err) return fail(err);
+  }
+  const stored: Parameters<typeof updateApi>[1] = {
+    ...(patch.name !== undefined ? { name: patch.name } : {}),
+    ...(patch.url !== undefined ? { url: patch.url } : {}),
+    ...(patch.method !== undefined
+      ? { method: patch.method.toUpperCase() as ApiMethod }
+      : {}),
+    ...(patch.expectedStatus !== undefined ? { expectedStatus: patch.expectedStatus } : {}),
+    ...(patch.timeoutMs !== undefined ? { timeoutMs: patch.timeoutMs } : {}),
+    ...(patch.enabled !== undefined ? { enabled: patch.enabled } : {}),
+  };
+  if (!updateApi(id, stored)) return fail("Could not update the API monitor.");
+  return { ok: true };
+}
+
+export function removeApi(id: string): MutateResult {
+  return deleteApi(id) ? { ok: true } : fail("Could not remove the API monitor.");
 }
 
 export async function createRepository(input: {
