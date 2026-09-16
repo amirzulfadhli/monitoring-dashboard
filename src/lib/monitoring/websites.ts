@@ -4,6 +4,7 @@ import {
   persistWebsiteCheck,
   type WebsiteCheckRow,
 } from "./storage";
+import { safeFetch, SafeFetchError } from "./safe-fetch";
 
 // Explicit thresholds live here, in one place.
 const HTTP_TIMEOUT_MS = 8000; // a broken service must never stall the check indefinitely
@@ -96,11 +97,9 @@ async function checkSite(site: MonitoredSite): Promise<CheckResult> {
   const expected = site.expectedStatus ?? DEFAULT_EXPECTED_STATUS;
   const start = Date.now();
   try {
-    const res = await fetch(site.url, {
-      cache: "no-store",
-      redirect: "follow",
-      signal: AbortSignal.timeout(HTTP_TIMEOUT_MS),
-    });
+    // Redirects are followed only after each hop is re-validated (see
+    // safe-fetch), and the response body is never read.
+    const res = await safeFetch(site.url, { timeoutMs: HTTP_TIMEOUT_MS });
     const latencyMs = Date.now() - start;
     const c = classify(res.status, latencyMs, expected);
     return {
@@ -120,7 +119,9 @@ async function checkSite(site: MonitoredSite): Promise<CheckResult> {
       err?.name === "TimeoutError" || err?.name === "AbortError";
     const kind = timedOut
       ? { type: "timeout", message: "request timed out" }
-      : { type: "network", message: err?.message || "network error" };
+      : e instanceof SafeFetchError
+        ? { type: e.type, message: e.message }
+        : { type: "network", message: err?.message || "network error" };
     const c = classify(null, latencyMs, expected);
     return {
       site,

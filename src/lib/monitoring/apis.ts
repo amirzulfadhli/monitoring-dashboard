@@ -17,6 +17,7 @@ import { getEnabledApis } from "@/lib/settings/service";
 import { sanitizeErrorMessage } from "@/lib/scheduler/health";
 
 import { persistApiCheck, type ApiCheckRow } from "./api-storage";
+import { safeFetch, SafeFetchError } from "./safe-fetch";
 
 /** Explicit thresholds live here, in one place. */
 const DEFAULT_TIMEOUT_MS = 8000; // a broken endpoint must never stall the check
@@ -119,6 +120,9 @@ export function classifyApiCheck(input: {
  * credential sanitizer before it is ever stored or served.
  */
 export function classifyFetchError(e: unknown): ErrorKind {
+  // A refused redirect is reported as its own kind, not as a generic network
+  // error: "blocked" is a deliberate refusal, not a connectivity problem.
+  if (e instanceof SafeFetchError) return { type: e.type, message: e.message };
   const err = e as Error & { name?: string };
   const timedOut = err?.name === "TimeoutError" || err?.name === "AbortError";
   if (timedOut) return { type: "timeout", message: "request timed out" };
@@ -175,12 +179,12 @@ export async function checkApi(
   const start = Date.now();
   try {
     // No body, no headers, no credentials: the request surface is the method,
-    // the URL and a bounded timeout. The response body is never read.
-    const res = await fetchImpl(api.url, {
+    // the URL and a bounded timeout. Redirects are followed only after each hop
+    // is re-validated (see safe-fetch), and the response body is never read.
+    const res = await safeFetch(api.url, {
       method,
-      cache: "no-store",
-      redirect: "follow",
-      signal: AbortSignal.timeout(resolveTimeoutMs(api.timeoutMs)),
+      timeoutMs: resolveTimeoutMs(api.timeoutMs),
+      fetchImpl,
     });
     const latencyMs = Date.now() - start;
     const c = classifyApiCheck({ httpStatus: res.status, latencyMs, expectedStatus: expected });
