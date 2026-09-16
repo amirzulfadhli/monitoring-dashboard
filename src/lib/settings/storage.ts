@@ -17,10 +17,13 @@ import { getDb } from "@/lib/db";
 import { monitoredSites } from "@/data/monitored-sites";
 import { monitoredRepos } from "@/data/monitored-repos";
 import { alertConfig } from "@/lib/alerts/config";
+import { deviceTypeOf, type DeviceType } from "@/lib/devices/model";
+
 import type {
   AiAlertSettings,
   ApiMethod,
   MonitoredApi,
+  MonitoredDevice,
   MonitoredRepository,
   MonitoredWebsite,
   SystemAlertSettings,
@@ -343,6 +346,137 @@ export function deleteApi(id: string): boolean {
   if (!d) return false;
   try {
     const r = d.prepare(`DELETE FROM monitored_apis WHERE id = ?`).run(id);
+    return Number(r.changes) > 0;
+  } catch {
+    return false;
+  }
+}
+
+/* ------------------------------ devices ----------------------------- */
+
+type DeviceRow = {
+  id: string;
+  name: string;
+  host: string;
+  type: string;
+  enabled: number;
+  createdAt: number;
+  updatedAt: number;
+};
+
+function deviceFromRow(r: DeviceRow): MonitoredDevice {
+  return {
+    id: r.id,
+    name: r.name,
+    host: r.host,
+    type: deviceTypeOf(r.type),
+    enabled: !!r.enabled,
+    createdAt: r.createdAt,
+    updatedAt: r.updatedAt,
+  };
+}
+
+/** All configured devices (enabled or not). null => DB unavailable. */
+export function listDevices(): MonitoredDevice[] | null {
+  const d = getDb();
+  if (!d) return null;
+  try {
+    const rows = d
+      .prepare(
+        `SELECT id, name, host, type, enabled, createdAt, updatedAt
+           FROM monitored_devices ORDER BY createdAt ASC, id ASC`,
+      )
+      .all() as unknown as DeviceRow[];
+    return rows.map(deviceFromRow);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Store a device. `host` must already be normalized by the caller (validation
+ * runs in the service layer); a duplicate host is refused by the unique index
+ * rather than silently creating a second monitor for the same machine.
+ */
+export function insertDevice(input: {
+  name: string;
+  host: string;
+  type: DeviceType;
+}): MonitoredDevice | null {
+  const d = getDb();
+  if (!d) return null;
+  const now = Date.now();
+  const id = randomUUID();
+  const name = input.name.trim();
+  const host = input.host.trim();
+  try {
+    d.prepare(
+      `INSERT INTO monitored_devices
+         (id, name, host, type, enabled, createdAt, updatedAt)
+       VALUES (?, ?, ?, ?, 1, ?, ?)`,
+    ).run(id, name, host, input.type, now, now);
+    return deviceFromRow({
+      id,
+      name,
+      host,
+      type: input.type,
+      enabled: 1,
+      createdAt: now,
+      updatedAt: now,
+    });
+  } catch {
+    return null;
+  }
+}
+
+/** Update any subset of a device's fields. */
+export function updateDevice(
+  id: string,
+  patch: {
+    name?: string;
+    host?: string;
+    type?: DeviceType;
+    enabled?: boolean;
+  },
+): boolean {
+  const d = getDb();
+  if (!d) return false;
+  const now = Date.now();
+  const sets: string[] = ["updatedAt = ?"];
+  const args: (string | number | null)[] = [now];
+  if (patch.name !== undefined) {
+    sets.push("name = ?");
+    args.push(patch.name.trim());
+  }
+  if (patch.host !== undefined) {
+    sets.push("host = ?");
+    args.push(patch.host.trim());
+  }
+  if (patch.type !== undefined) {
+    sets.push("type = ?");
+    args.push(patch.type);
+  }
+  if (patch.enabled !== undefined) {
+    sets.push("enabled = ?");
+    args.push(patch.enabled ? 1 : 0);
+  }
+  args.push(id);
+  try {
+    const r = d
+      .prepare(`UPDATE monitored_devices SET ${sets.join(", ")} WHERE id = ?`)
+      .run(...args);
+    return Number(r.changes) > 0;
+  } catch {
+    return false;
+  }
+}
+
+/** Remove a device from config. Its reachability history is intentionally kept. */
+export function deleteDevice(id: string): boolean {
+  const d = getDb();
+  if (!d) return false;
+  try {
+    const r = d.prepare(`DELETE FROM monitored_devices WHERE id = ?`).run(id);
     return Number(r.changes) > 0;
   } catch {
     return false;

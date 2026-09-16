@@ -1,8 +1,15 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import type { ApiMethod, MonitoredApi, MonitoredRepository, MonitoredWebsite } from "@/lib/settings/types";
+import type {
+  ApiMethod,
+  MonitoredApi,
+  MonitoredDevice,
+  MonitoredRepository,
+  MonitoredWebsite,
+} from "@/lib/settings/types";
 import { API_METHODS } from "@/lib/settings/types";
+import { DEVICE_TYPES, type DeviceType } from "@/lib/devices/model";
 
 /**
  * Settings page. Configures what DevPulse monitors and how it alerts. All
@@ -17,6 +24,7 @@ type Bundle = {
   websites: MonitoredWebsite[];
   apis: MonitoredApi[];
   repositories: MonitoredRepository[];
+  devices: MonitoredDevice[];
   alerts: {
     system: { cpuWarnPct: number; cpuCritPct: number; memWarnPct: number; memCritPct: number };
     ai: { tokenBudget24h: number | null; costBudget24hUsd: number | null };
@@ -129,6 +137,7 @@ export default function SettingsPage() {
           <WebsitesSection sites={bundle.websites} onChanged={reload} setNotice={setNotice} />
           <ApisSection apis={bundle.apis} onChanged={reload} setNotice={setNotice} />
           <ReposSection repos={bundle.repositories} onChanged={reload} setNotice={setNotice} />
+          <DevicesSection devices={bundle.devices} onChanged={reload} setNotice={setNotice} />
         </div>
       </Section>
 
@@ -675,6 +684,170 @@ function RepoRow({
 /* ------------------------------------------------------------------ *
  * Alerts
  * ------------------------------------------------------------------ */
+
+function DevicesSection({
+  devices,
+  onChanged,
+  setNotice,
+}: {
+  devices: MonitoredDevice[];
+  onChanged: () => void;
+  setNotice: (n: Notice) => void;
+}) {
+  const [adding, setAdding] = useState(false);
+  const [name, setName] = useState("");
+  const [host, setHost] = useState("");
+  const [type, setType] = useState<DeviceType>("computer");
+
+  const report = async (res: { ok: boolean; error?: string }, okText: string) => {
+    if (res.ok) {
+      setNotice({ kind: "success", text: okText });
+      onChanged();
+    } else {
+      setNotice({ kind: "error", text: res.error ?? "Request failed." });
+    }
+  };
+
+  const add = async () => {
+    const res = await api("devices", "POST", { name, host, type });
+    if (res.ok) {
+      setName("");
+      setHost("");
+      setType("computer");
+      setAdding(false);
+    }
+    await report(res, "Device added.");
+  };
+
+  const update = async (id: string, patch: Record<string, unknown>) => {
+    const res = await api("devices", "PUT", { id, ...patch });
+    await report(res, "Device updated.");
+  };
+
+  const remove = async (id: string) => {
+    const res = await api(`devices?id=${encodeURIComponent(id)}`, "DELETE");
+    await report(res, "Device removed. Its reachability history is kept.");
+  };
+
+  return (
+    <div>
+      <h3 className="text-[11px] font-medium uppercase tracking-wider text-zinc-400 dark:text-zinc-500">Devices</h3>
+      <div className="mt-2 divide-y divide-zinc-100 dark:divide-zinc-900">
+        {devices.length === 0 && <p className="py-2 text-sm text-zinc-400 dark:text-zinc-500">No devices monitored.</p>}
+        {devices.map((d) => (
+          <DeviceRow
+            key={d.id}
+            device={d}
+            onToggle={(v) => update(d.id, { enabled: v })}
+            onUpdate={(patch) => update(d.id, patch)}
+            onRemove={() => remove(d.id)}
+          />
+        ))}
+      </div>
+
+      {adding ? (
+        <div className="mt-3 grid grid-cols-1 gap-3 rounded-md border border-zinc-200 p-3 dark:border-zinc-800 md:grid-cols-[1fr_1.4fr_0.8fr_auto]">
+          <div>
+            <label className={labelCls}>Name</label>
+            <input className={inputCls} value={name} onChange={(e) => setName(e.target.value)} placeholder="Build server" />
+          </div>
+          <div>
+            <label className={labelCls}>Host</label>
+            <input className={inputCls} value={host} onChange={(e) => setHost(e.target.value)} placeholder="build-01.local or 10.0.0.12" />
+          </div>
+          <div>
+            <label className={labelCls}>Type</label>
+            <select className={inputCls} value={type} onChange={(e) => setType(e.target.value as DeviceType)}>
+              {DEVICE_TYPES.map((t) => (
+                <option key={t} value={t}>{t}</option>
+              ))}
+            </select>
+          </div>
+          <div className="flex items-end gap-2">
+            <button type="button" onClick={add} className={btnPrimary}>Add</button>
+            <button type="button" onClick={() => setAdding(false)} className={btnCls}>Cancel</button>
+          </div>
+        </div>
+      ) : (
+        <button type="button" onClick={() => setAdding(true)} className={`${btnPrimary} mt-3`}>
+          + Add device
+        </button>
+      )}
+      <p className="mt-2 text-xs text-zinc-400 dark:text-zinc-500">
+        Reachability only. DevPulse sends one bounded ping per device — no credentials, no remote
+        commands, no port scanning, no address-range discovery.
+      </p>
+    </div>
+  );
+}
+
+function DeviceRow({
+  device,
+  onToggle,
+  onUpdate,
+  onRemove,
+}: {
+  device: MonitoredDevice;
+  onToggle: (v: boolean) => void;
+  onUpdate: (patch: Record<string, unknown>) => void;
+  onRemove: () => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [name, setName] = useState(device.name);
+  const [host, setHost] = useState(device.host);
+  const [type, setType] = useState<DeviceType>(device.type);
+
+  const save = () => {
+    onUpdate({ name, host, type });
+    setEditing(false);
+  };
+
+  const startEdit = () => {
+    setName(device.name);
+    setHost(device.host);
+    setType(device.type);
+    setEditing(true);
+  };
+
+  return (
+    <div className="py-2">
+      {editing ? (
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-[1fr_1.4fr_0.8fr_auto]">
+          <div><label className={labelCls}>Name</label><input className={inputCls} value={name} onChange={(e) => setName(e.target.value)} /></div>
+          <div><label className={labelCls}>Host</label><input className={inputCls} value={host} onChange={(e) => setHost(e.target.value)} /></div>
+          <div>
+            <label className={labelCls}>Type</label>
+            <select className={inputCls} value={type} onChange={(e) => setType(e.target.value as DeviceType)}>
+              {DEVICE_TYPES.map((t) => (
+                <option key={t} value={t}>{t}</option>
+              ))}
+            </select>
+          </div>
+          <div className="flex items-end gap-2">
+            <button type="button" onClick={save} className={btnPrimary}>Save</button>
+            <button type="button" onClick={() => setEditing(false)} className={btnCls}>Cancel</button>
+          </div>
+        </div>
+      ) : (
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="min-w-0">
+            <p className="truncate text-sm text-zinc-900 dark:text-zinc-50">
+              {device.name}
+              <span className="ml-2 rounded border border-zinc-200 px-1.5 py-0.5 text-[10px] uppercase tracking-wider text-zinc-400 dark:border-zinc-800 dark:text-zinc-500">
+                {device.type}
+              </span>
+            </p>
+            <p className="truncate font-mono text-xs text-zinc-400 dark:text-zinc-500">{device.host}</p>
+          </div>
+          <div className="flex items-center gap-3">
+            <Toggle checked={device.enabled} onChange={onToggle} label={`Enable ${device.name}`} />
+            <RowControls onEdit={startEdit} onRemove={onRemove} />
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 function SystemThresholds({
   system,

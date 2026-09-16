@@ -10,6 +10,7 @@
  *   1 = the consolidated baseline schema.
  *   2 = API endpoint monitoring (monitored_apis config + api_checks history).
  *   3 = local security monitoring (security_snapshots + security_findings).
+ *   4 = device reachability monitoring (monitored_devices + device_checks).
  *
  * Every migration must be additive and idempotent: DevPulse never drops tables,
  * deletes rows, or recreates the database. A database whose version is *newer*
@@ -19,7 +20,7 @@
 import type { DatabaseSync } from "node:sqlite";
 
 /** Current schema version. Bump when adding a migration below. */
-export const SCHEMA_VERSION = 3;
+export const SCHEMA_VERSION = 4;
 
 /** Add a column to a table only if it does not exist yet (idempotent, additive). */
 function addColumn(
@@ -333,11 +334,60 @@ function migration3(d: DatabaseSync): void {
   `);
 }
 
+/**
+ * Version 4 — device reachability monitoring. Additive only: two new tables and
+ * their indexes, no existing table, index or row is touched.
+ *
+ * `monitored_devices` is configuration, alongside the other monitored_* tables.
+ * A device stores a name, a host and a type — never a credential, a port, a
+ * path or a command. The host is validated to a strict hostname/IP charset
+ * before it is ever written (see lib/settings/validate).
+ *
+ * `device_checks` is one row per reachability observation. It deliberately
+ * holds no CPU, memory or network data: the local machine's telemetry stays in
+ * `history` and is never copied here.
+ */
+function migration4(d: DatabaseSync): void {
+  d.exec(`
+    CREATE TABLE IF NOT EXISTS monitored_devices (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      host TEXT NOT NULL,              -- normalized hostname or IP literal
+      type TEXT NOT NULL DEFAULT 'other',  -- computer | server | iot | other
+      enabled INTEGER NOT NULL DEFAULT 1,
+      createdAt INTEGER NOT NULL,
+      updatedAt INTEGER NOT NULL
+    );
+    -- Two devices pointing at the same host would double every check and make
+    -- the reachability history ambiguous, so a host is monitored once.
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_monitored_devices_host
+      ON monitored_devices (host);
+  `);
+
+  d.exec(`
+    CREATE TABLE IF NOT EXISTS device_checks (
+      ts INTEGER,                   -- epoch ms
+      deviceId TEXT,
+      reachable INTEGER NOT NULL,   -- 1 reachable, 0 unreachable
+      latencyMs REAL,               -- null when unreachable or not reported
+      errorType TEXT,               -- timeout | unreachable | spawn_failed
+      error TEXT,                   -- our own short reason, never ping output
+      PRIMARY KEY (ts, deviceId)
+    );
+    -- Same reasoning as website_checks / api_checks: ts leads the PK so range
+    -- reads and retention scan by timestamp; this secondary index serves the
+    -- newest-per-device reads that alert evaluation and History depend on.
+    CREATE INDEX IF NOT EXISTS idx_device_checks_device_ts
+      ON device_checks(deviceId, ts);
+  `);
+}
+
 /** Ordered migrations. Each entry moves the database from version-1 to its own. */
 const MIGRATIONS: { version: number; up: (d: DatabaseSync) => void }[] = [
   { version: 1, up: migration1 },
   { version: 2, up: migration2 },
   { version: 3, up: migration3 },
+  { version: 4, up: migration4 },
 ];
 
 function getUserVersion(d: DatabaseSync): number {

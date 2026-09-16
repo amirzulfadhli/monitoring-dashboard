@@ -6,7 +6,14 @@
 
 export type Severity = "info" | "warning" | "critical";
 export type Status = "active" | "resolved";
-export type AlertSource = "system" | "websites" | "apis" | "github" | "ai" | "security";
+export type AlertSource =
+  | "system"
+  | "websites"
+  | "apis"
+  | "devices"
+  | "github"
+  | "ai"
+  | "security";
 
 /** Centralized rule ids, referenced by evaluator + config + storage. */
 export const RULES = {
@@ -15,6 +22,7 @@ export const RULES = {
   WEBSITE_DEGRADED: "website_degraded",
   WEBSITE_DOWN: "website_down",
   API_DOWN: "api_down",
+  DEVICE_UNREACHABLE: "device_unreachable",
   WORKFLOW_FAILED: "workflow_failed",
   AI_TOKEN_BUDGET: "ai_token_budget",
   AI_COST_BUDGET: "ai_cost_budget",

@@ -15,6 +15,9 @@
 import { lookup } from "node:dns/promises";
 import { isIP } from "node:net";
 
+import { DEVICE_TYPES } from "@/lib/devices/model";
+import { hostError, normalizeHost } from "@/lib/devices/host";
+
 import { API_METHODS } from "./types";
 
 /* ------------------------------------------------------------------ *
@@ -186,6 +189,48 @@ export function validateApiFields(input: {
   // Same SSRF rules as a monitored website: no loopback / link-local / private
   // destination, literal or via DNS.
   return validateWebsiteUrl(input.url);
+}
+
+/* ------------------------------------------------------------------ *
+ * Device monitors
+ *
+ * A device host is a narrower trust boundary than a monitored URL, not a wider
+ * one: it is later handed to a process invocation. The SSRF rules above do not
+ * apply (pointing at a loopback or private address is the *purpose* of device
+ * monitoring — those are the machines on your own network), so what protects
+ * the invocation instead is the host charset itself: normalizeHost accepts only
+ * a hostname or IP literal, which cannot contain whitespace, a quote, a shell
+ * metacharacter, a leading `-`, a scheme, a port, a path or a range. The
+ * normalized value is what gets stored and what the collector passes as a
+ * single argv element.
+ *
+ * A host that cannot be normalized is refused rather than repaired, so nothing
+ * unvalidated is ever persisted.
+ * ------------------------------------------------------------------ */
+
+/** Normalize a device host, or null when it is not an acceptable target. */
+export function normalizeDeviceHost(host: unknown): string | null {
+  return normalizeHost(host);
+}
+
+export function validateDeviceType(type: unknown): string | null {
+  if (type == null || type === "") return null; // defaults to "other"
+  if (typeof type !== "string" || !(DEVICE_TYPES as readonly string[]).includes(type)) {
+    return `Type must be one of ${DEVICE_TYPES.join(", ")}.`;
+  }
+  return null;
+}
+
+export function validateDeviceFields(input: {
+  name: string;
+  host: string;
+  type?: unknown;
+}): string | null {
+  const byName = validateWebsiteName(input.name);
+  if (byName) return byName;
+  const byType = validateDeviceType(input.type);
+  if (byType) return byType;
+  return hostError(input.host);
 }
 
 /** Minimal GitHub owner / repository syntax (no arbitrary URLs, ever). */

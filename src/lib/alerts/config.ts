@@ -21,6 +21,20 @@ export const alertConfig = {
     // How far back to read persisted history for system rules.
     lookbackMs: 5 * 60 * 1000,
   },
+  devices: {
+    // Consecutive persisted checks that must all be unreachable before an alert
+    // opens. One dropped echo request — or a single check landing while a
+    // machine reboots — must never page anyone; three in a row (~3 minutes at
+    // the collector cadence) is a machine that is actually gone.
+    consecutiveFailures: 3,
+    // How far back to read persisted device checks. A device whose newest check
+    // is older than this is not evaluated at all: DevPulse cannot claim a device
+    // is unreachable now based on an observation from days ago.
+    lookbackMs: 10 * 60 * 1000,
+    // How far back to look for checks at all when computing the streak. Wider
+    // than lookbackMs so a slow cadence cannot make the streak unreadable.
+    historyMs: DAY_MS,
+  },
   security: {
     // A local security observation older than this is not evaluated at all: a
     // snapshot from days ago must not keep raising an alert for state that

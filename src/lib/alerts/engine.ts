@@ -16,6 +16,7 @@ import { alertConfig, DAY_MS } from "./config";
 import {
   getAiSettings,
   getEnabledApis,
+  getEnabledDevices,
   getEnabledSites,
   getEnabledRepos,
   getSystemSettings,
@@ -24,6 +25,7 @@ import { readAlerts, readCounts, applyVerdict } from "./storage";
 import { readSystemSamples } from "@/lib/telemetry/storage";
 import { readLatestWebsiteChecks } from "@/lib/monitoring/storage";
 import { readLatestApiChecks } from "@/lib/monitoring/api-storage";
+import { readLatestDeviceChecks } from "@/lib/devices/storage";
 import { readLatestGithubSnapshots } from "@/lib/monitoring/github-snapshots";
 import { readAiUsage } from "@/lib/monitoring/ai-storage";
 import {
@@ -34,6 +36,7 @@ import {
   evaluateSystem,
   evaluateWebsites,
   evaluateApis,
+  evaluateDevices,
   evaluateGithub,
   evaluateSecurity,
   evaluateAi,
@@ -108,6 +111,33 @@ async function runEvaluation(at: number): Promise<void> {
     for (const v of evaluateApis(obs)) applyVerdict(v, at);
   } catch {
     // API source failure is isolated.
+  }
+
+  // ---- devices (persisted reachability checks; no ping of its own) ----
+  try {
+    // Same rule as the other monitors: only currently-enabled devices are
+    // evaluated, so disabling one stops its alerts without deleting history.
+    // Alert evaluation reads stored rows, so raising a device alert costs no
+    // network traffic at all.
+    const enabled = getEnabledDevices();
+    const enabledIds = new Set(enabled.map((d) => d.id));
+    const nameOf = new Map(enabled.map((d) => [d.id, d.name]));
+    const hostOf = new Map(enabled.map((d) => [d.id, d.host]));
+    const obs = readLatestDeviceChecks(at - alertConfig.devices.historyMs)
+      .filter((c) => enabledIds.has(c.deviceId))
+      // A check older than the lookback window is not evidence that a device is
+      // unreachable *now*, so it is not evaluated.
+      .filter((c) => at - c.ts <= alertConfig.devices.lookbackMs)
+      .map((c) => ({
+        deviceId: c.deviceId,
+        name: nameOf.get(c.deviceId) ?? c.deviceId,
+        host: hostOf.get(c.deviceId) ?? "unknown host",
+        consecutiveUnreachable: c.consecutiveUnreachable,
+        lastCheckedAt: c.ts,
+      }));
+    for (const v of evaluateDevices(obs, alertConfig.devices)) applyVerdict(v, at);
+  } catch {
+    // Device source failure is isolated; no alert is fabricated from it.
   }
 
   // ---- github (evaluate from the latest persisted snapshot; no live fetch) ----

@@ -10,6 +10,7 @@
  *   telemetry job    ~30s   collectTelemetry()          + persistSnapshot()
  *   websites job     ~60s   getWebsiteResults()         (persists internally)
  *   apis job         ~60s   getApiResults()             (persists internally)
+ *   devices job      ~60s   getDeviceResults()          (persists internally)
  *   security job      ~5m   getSecurityResults()        (persists internally)
  *   github job       ~90s   getGitHubResult()           + persistGithubSnapshots()
  *   alerts job       ~60s   evaluateAlerts()            + opportunistic retention
@@ -28,6 +29,8 @@ import { collectTelemetry } from "@/lib/telemetry";
 import { persistSnapshot } from "@/lib/telemetry/storage";
 import { getWebsiteResults } from "@/lib/monitoring/websites";
 import { getApiResults } from "@/lib/monitoring/apis";
+import { getDeviceResults } from "@/lib/devices";
+import { getEnabledDevices } from "@/lib/settings/service";
 import { getSecurityResults } from "@/lib/security";
 import { getGitHubResult } from "@/lib/monitoring/github";
 import { persistGithubSnapshots } from "@/lib/monitoring/github-snapshots";
@@ -52,6 +55,7 @@ const START_DELAY_MS: Record<JobName, number> = {
   telemetry: 2_000,
   websites: 6_000,
   apis: 8_000,
+  devices: 10_000,
   security: 12_000,
   github: 14_000,
   alerts: 17_000,
@@ -109,6 +113,21 @@ const JOBS: JobDef[] = [
       // configured endpoints this is a cheap no-op.
       const results = await getApiResults();
       store.apis = { value: results, at: Date.now() };
+    },
+  },
+  {
+    name: "devices",
+    // Nothing to check until a device is configured, so the job is inactive
+    // rather than reporting an empty run as a success. This is also what keeps
+    // "no devices" from reading as a healthy collector.
+    inactive: () =>
+      getEnabledDevices().length === 0 ? "no devices are configured" : null,
+    async run(store) {
+      // One bounded ICMP echo request per enabled device; results (and their
+      // history) are persisted inside the collector. An unreachable device is
+      // an observation, not a failure — this job succeeds either way.
+      const results = await getDeviceResults();
+      store.devices = { value: results, at: Date.now() };
     },
   },
   {

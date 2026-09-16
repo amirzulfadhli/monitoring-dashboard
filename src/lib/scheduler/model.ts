@@ -14,6 +14,7 @@ export const JOB_NAMES = [
   "telemetry",
   "websites",
   "apis",
+  "devices",
   "security",
   "github",
   "alerts",
@@ -28,6 +29,9 @@ export const JOB_CADENCE_MS: Record<JobName, number> = {
   telemetry: 30_000,
   websites: 60_000,
   apis: 60_000, // same cadence as website monitoring
+  // Device reachability is one echo request per device; a minute is frequent
+  // enough to notice a machine dropping off without being a network nuisance.
+  devices: 60_000,
   // Local security state (firewall / Defender / listening sockets) changes on a
   // human timescale, so it is sampled far less often than the other collectors.
   security: 300_000,

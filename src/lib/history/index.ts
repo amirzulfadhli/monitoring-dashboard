@@ -13,7 +13,7 @@
 
 import { monitoredSites } from "@/data/monitored-sites";
 import { monitoredRepos } from "@/data/monitored-repos";
-import { listApis, listRepositories, listWebsites } from "@/lib/settings/storage";
+import { listApis, listDevices, listRepositories, listWebsites } from "@/lib/settings/storage";
 import { readAlerts } from "@/lib/alerts/storage";
 import type { AlertRecord } from "@/lib/alerts/model";
 import { readWebsiteChecks } from "@/lib/monitoring/storage";
@@ -24,6 +24,9 @@ import { readGithubSnapshotsSince } from "@/lib/monitoring/github-snapshots";
 import type { StoredGithubSnapshot } from "@/lib/monitoring/github-snapshots";
 import { readUsageRowsSince } from "@/lib/monitoring/ai-storage";
 import type { UsageRowForHistory } from "@/lib/monitoring/ai-storage";
+import { readDeviceChecks } from "@/lib/devices/storage";
+import type { StoredDeviceCheck } from "@/lib/devices/storage";
+import { reachabilityState } from "@/lib/devices/model";
 import { readSecurityFindings } from "@/lib/security/storage";
 import type { StoredSecurityFinding } from "@/lib/security/storage";
 import { readTelemetryRows } from "@/lib/telemetry/storage";
@@ -61,6 +64,11 @@ export function buildTimeline(range: HistoryRangeKey): TimelineEvent[] {
     events.push(...apiEvents(readApiChecks(since), names));
   } catch {
     /* api slice unavailable */
+  }
+  try {
+    events.push(...deviceEvents(readDeviceChecks(since), names));
+  } catch {
+    /* device slice unavailable */
   }
   try {
     events.push(...githubEvents(readGithubSnapshotsSince(since), names));
@@ -194,15 +202,26 @@ function ev(
 type NameLookup = {
   site(targetId: string): string;
   api(targetId: string): string;
+  device(deviceId: string): string;
   repo(repoKey: string, snap: StoredGithubSnapshot): string;
 };
 
 function createNameLookup(): NameLookup {
   let sites: Map<string, string> | null = null;
   let apis: Map<string, string> | null = null;
+  let devices: Map<string, string> | null = null;
   let repos: Map<string, string> | null = null;
 
   return {
+    device(deviceId) {
+      // Devices have no seeded fallback list, so the persisted settings store is
+      // the only name source; a removed device falls back to its id.
+      if (!devices) {
+        devices = new Map();
+        for (const d of listDevices() ?? []) devices.set(d.id, d.name);
+      }
+      return devices.get(deviceId) ?? deviceId;
+    },
     api(targetId) {
       // API monitors have no seeded fallback list, so the persisted settings
       // store is the only name source; a removed monitor falls back to its id.
@@ -420,6 +439,58 @@ function apiEvents(rows: StoredApiCheck[], names: NameLookup): TimelineEvent[] {
       );
     }
     last.set(r.targetId, r.state);
+  }
+  return events;
+}
+
+/* ------------------------------------------------------------------ *
+ * Devices (reachability transitions only — never one event per successful poll)
+ * ------------------------------------------------------------------ */
+
+const REACHABILITY_SEV: Record<string, TimelineEvent["severity"]> = {
+  reachable: "info",
+  unreachable: "critical",
+};
+
+/**
+ * A device contributes an event only when its reachability *changes*:
+ * reachable → unreachable and unreachable → reachable.
+ *
+ * The first in-range row is a baseline, not an event, so a device that has been
+ * reachable all along — or that DevPulse has simply never seen before — adds
+ * nothing. A successful poll is therefore never an event; only a transition is.
+ */
+function deviceEvents(rows: StoredDeviceCheck[], names: NameLookup): TimelineEvent[] {
+  const events: TimelineEvent[] = [];
+  if (rows.length === 0) return events;
+
+  const last = new Map<string, string>();
+
+  for (const r of rows) {
+    const state = reachabilityState(r.reachable);
+    const prev = last.get(r.deviceId);
+    if (prev !== undefined && prev !== state) {
+      const name = names.device(r.deviceId);
+      events.push(
+        ev(
+          "device",
+          "device_reachability",
+          r.deviceId,
+          r.ts,
+          REACHABILITY_SEV[state],
+          `${name} → ${state}`,
+          `Transitioned from ${prev} to ${state}` +
+            (r.latencyMs != null ? ` · ${r.latencyMs.toFixed(0)}ms` : ""),
+          {
+            deviceId: r.deviceId,
+            from: prev,
+            state,
+            latencyMs: r.latencyMs,
+          },
+        ),
+      );
+    }
+    last.set(r.deviceId, state);
   }
   return events;
 }

@@ -16,7 +16,7 @@ export const navSections: NavItem[] = [
   { label: "Projects" },
   { label: "Servers" },
   { label: "Database" },
-  { label: "Devices" },
+  { label: "Devices", href: "/devices" },
   { label: "Security", href: "/security" },
   { label: "Alerts", href: "/alerts" },
   { label: "History", href: "/history" },

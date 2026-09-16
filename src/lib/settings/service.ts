@@ -11,20 +11,26 @@ import { monitoredRepos, type MonitoredRepo } from "@/data/monitored-repos";
 import { alertConfig } from "@/lib/alerts/config";
 import type { ApiTarget } from "@/lib/monitoring/apis";
 
+import { deviceTypeOf, type MonitorableDevice } from "@/lib/devices/model";
+
 import {
   deleteApi,
+  deleteDevice,
   deleteRepository,
   deleteWebsite,
   ensureSeeded,
   insertApi,
+  insertDevice,
   insertRepository,
   insertWebsite,
   listApis,
+  listDevices,
   listRepositories,
   listWebsites,
   readAiBudgets,
   readSystemThresholds,
   updateApi,
+  updateDevice,
   updateRepository,
   updateWebsite,
   writeAiBudgets,
@@ -35,14 +41,17 @@ import type {
   AlertSettings,
   ApiMethod,
   MonitoredApi,
+  MonitoredDevice,
   MonitoredRepository,
   MonitoredWebsite,
   SettingsBundle,
   SystemAlertSettings,
 } from "./types";
 import {
+  normalizeDeviceHost,
   validateAlertInput,
   validateApiFields,
+  validateDeviceFields,
   validateOwnerRepo,
   validateWebsiteFields,
 } from "./validate";
@@ -110,6 +119,21 @@ export function getEnabledRepos(): MonitoredRepo[] {
   return all.filter((r) => r.enabled).map(toMonitorRepo);
 }
 
+function toMonitorableDevice(d: MonitoredDevice): MonitorableDevice {
+  return { id: d.id, name: d.name, host: d.host, type: d.type };
+}
+
+/**
+ * Enabled devices to check. There is no source-seeded fallback list for devices
+ * (nothing is monitored until the user configures it), so an unavailable DB
+ * yields [] rather than inventing targets — the devices collector job is
+ * inactive in that case rather than reporting an empty, successful run.
+ */
+export function getEnabledDevices(): MonitorableDevice[] {
+  ensureSeeded();
+  return (listDevices() ?? []).filter((d) => d.enabled).map(toMonitorableDevice);
+}
+
 /**
  * Effective CPU/memory alert settings: persisted thresholds when present,
  * otherwise the historical source defaults. The consecutive-sample guard and
@@ -159,6 +183,7 @@ export function getSettingsBundle(): SettingsBundle {
     websites: listWebsites() ?? [],
     apis: listApis() ?? [],
     repositories: listRepositories() ?? [],
+    devices: listDevices() ?? [],
     alerts: { system: getSystemSettings(), ai: getAiSettings() },
     integrations: {
       github: configured("GITHUB_TOKEN"),
@@ -303,6 +328,74 @@ export async function updateApiFields(
 
 export function removeApi(id: string): MutateResult {
   return deleteApi(id) ? { ok: true } : fail("Could not remove the API monitor.");
+}
+
+/* ------------------------------- devices ------------------------------- */
+
+/**
+ * Add a monitored device. The host is validated and normalized before storage,
+ * so what the collector later receives is always a bare hostname or IP literal
+ * — never a URL, a port, a path or anything a shell could read.
+ */
+export function createDevice(input: {
+  name: string;
+  host: string;
+  type?: unknown;
+}): MutateResult {
+  const err = validateDeviceFields(input);
+  if (err) return fail(err);
+  const host = normalizeDeviceHost(input.host);
+  if (!host) return fail("Host is not a valid hostname or IP address.");
+  const created = insertDevice({
+    name: input.name,
+    host,
+    type: deviceTypeOf(input.type),
+  });
+  return created
+    ? { ok: true }
+    : fail("Could not save the device (this host may already be monitored).");
+}
+
+export function updateDeviceFields(
+  id: string,
+  patch: {
+    name?: string;
+    host?: string;
+    type?: unknown;
+    enabled?: boolean;
+  },
+): MutateResult {
+  // As with the other monitors, only identity fields are re-validated so an
+  // enable/disable toggle never re-runs validation on untouched fields.
+  const identityChanged =
+    patch.name !== undefined || patch.host !== undefined || patch.type !== undefined;
+  if (identityChanged) {
+    const current = (listDevices() ?? []).find((d) => d.id === id);
+    if (!current) return fail("Device not found.");
+    const err = validateDeviceFields({
+      name: patch.name ?? current.name,
+      host: patch.host ?? current.host,
+      type: patch.type !== undefined ? patch.type : current.type,
+    });
+    if (err) return fail(err);
+  }
+
+  const stored: Parameters<typeof updateDevice>[1] = {
+    ...(patch.name !== undefined ? { name: patch.name } : {}),
+    ...(patch.host !== undefined
+      ? { host: normalizeDeviceHost(patch.host) ?? patch.host }
+      : {}),
+    ...(patch.type !== undefined ? { type: deviceTypeOf(patch.type) } : {}),
+    ...(patch.enabled !== undefined ? { enabled: patch.enabled } : {}),
+  };
+  if (!updateDevice(id, stored)) {
+    return fail("Could not update the device (this host may already be monitored).");
+  }
+  return { ok: true };
+}
+
+export function removeDevice(id: string): MutateResult {
+  return deleteDevice(id) ? { ok: true } : fail("Could not remove the device.");
 }
 
 export async function createRepository(input: {

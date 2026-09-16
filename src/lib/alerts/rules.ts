@@ -4,6 +4,8 @@
  * central config, and returns verdicts. No AI, no heuristics, no network here —
  * pure logic that the engine feeds real data into and tests feed fixtures into.
  */
+import { isUnreachableAtThreshold } from "@/lib/devices/model";
+
 import { RULES, type AlertSource, type RuleId, type RuleVerdict, type Severity } from "./model";
 
 /* ----------------------------- helpers ----------------------------- */
@@ -179,6 +181,65 @@ export function evaluateApis(targets: ApiObs[]): RuleVerdict[] {
           : `${t.name} is responding as expected.`,
         down,
         { api: t.name },
+      ),
+    );
+  }
+  return out;
+}
+
+/* ------------------------------ devices ------------------------------ */
+
+export type DeviceObs = {
+  deviceId: string;
+  name: string;
+  host: string;
+  /**
+   * Leading run of unreachable checks at the newest end, or 0 when the device
+   * answered on its latest check. Read from persisted rows — evaluating a
+   * device alert never pings anything.
+   */
+  consecutiveUnreachable: number;
+  lastCheckedAt: number;
+};
+
+/**
+ * One rule per device: a device is either unreachable (enough consecutive
+ * checks failed) or it is not.
+ *
+ * The threshold is what makes this deterministic and quiet: a single missed
+ * echo request changes nothing, and a device that comes back resolves its own
+ * alert on the next evaluation. Latency is deliberately not alerted on — it is
+ * reported on the Devices page only, exactly as it is for websites and APIs.
+ *
+ * Nothing here monitors the collector. An unreachable device is an observation
+ * about that device; the devices job is still healthy.
+ */
+export function evaluateDevices(
+  targets: DeviceObs[],
+  cfg: { consecutiveFailures: number },
+): RuleVerdict[] {
+  const out: RuleVerdict[] = [];
+  for (const t of targets) {
+    const unreachable = isUnreachableAtThreshold(
+      t.consecutiveUnreachable,
+      cfg.consecutiveFailures,
+    );
+    out.push(
+      mk(
+        "devices",
+        RULES.DEVICE_UNREACHABLE,
+        `devices:unreachable:${t.deviceId}`,
+        "critical",
+        "Device unreachable",
+        unreachable
+          ? `${t.name} (${t.host}) has not responded to ${t.consecutiveUnreachable} consecutive checks.`
+          : `${t.name} (${t.host}) is responding again.`,
+        unreachable,
+        {
+          device: t.name,
+          host: t.host,
+          consecutiveFailures: t.consecutiveUnreachable,
+        },
       ),
     );
   }

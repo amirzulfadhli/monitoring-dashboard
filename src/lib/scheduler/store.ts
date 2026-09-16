@@ -14,6 +14,7 @@ import type { CheckResult } from "@/lib/monitoring/websites";
 import type { ApiCheckResult } from "@/lib/monitoring/apis";
 import type { GitHubResult } from "@/lib/monitoring/github";
 import type { SecuritySnapshot } from "@/lib/security/model";
+import type { DeviceCheckResult } from "@/lib/devices/model";
 import type { JobName } from "./model";
 
 export type Latest<T> = { value: T; at: number };
@@ -27,6 +28,7 @@ export type SchedulerStore = {
   telemetry: Latest<TelemetrySnapshot> | null;
   websites: Latest<CheckResult[]> | null;
   apis: Latest<ApiCheckResult[]> | null;
+  devices: Latest<DeviceCheckResult[]> | null;
   security: Latest<SecuritySnapshot> | null;
   github: Latest<GitHubResult> | null;
 };
@@ -84,6 +86,7 @@ export function getStore(): SchedulerStore {
         telemetry: emptyJob(),
         websites: emptyJob(),
         apis: emptyJob(),
+        devices: emptyJob(),
         security: emptyJob(),
         github: emptyJob(),
         alerts: emptyJob(),
@@ -91,6 +94,7 @@ export function getStore(): SchedulerStore {
       telemetry: null,
       websites: null,
       apis: null,
+      devices: null,
       security: null,
       github: null,
     };
@@ -111,6 +115,11 @@ export function getLatestWebsites(): Latest<CheckResult[]> | null {
 /** Latest scheduler-collected API check results. */
 export function getLatestApis(): Latest<ApiCheckResult[]> | null {
   return getStore().apis;
+}
+
+/** Latest scheduler-collected device reachability results. */
+export function getLatestDevices(): Latest<DeviceCheckResult[]> | null {
+  return getStore().devices;
 }
 
 /** Latest scheduler-collected local security snapshot. */

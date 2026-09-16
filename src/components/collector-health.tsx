@@ -28,6 +28,7 @@ const COLLECTOR_LABELS: Record<JobName, string> = {
   telemetry: "Telemetry",
   websites: "Websites",
   apis: "APIs",
+  devices: "Devices",
   security: "Security",
   github: "GitHub",
   alerts: "Alerts",

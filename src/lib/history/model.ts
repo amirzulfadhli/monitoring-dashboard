@@ -14,6 +14,7 @@ export type TimelineSource =
   | "network"
   | "website"
   | "api"
+  | "device"
   | "github"
   | "ai"
   | "security"
@@ -59,6 +60,7 @@ export const HISTORY_SOURCES = [
   "system",
   "website",
   "api",
+  "device",
   "github",
   "ai",
   "security",

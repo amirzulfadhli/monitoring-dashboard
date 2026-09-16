@@ -9,6 +9,8 @@
  * Secrets are deliberately absent: no API keys ever live in SQLite.
  */
 
+import type { DeviceType } from "@/lib/devices/model";
+
 export type MonitoredWebsite = {
   id: string;
   name: string;
@@ -33,6 +35,23 @@ export type MonitoredApi = {
   expectedStatus: number | null;
   /** Per-request timeout in ms. Null => the monitor default. */
   timeoutMs: number | null;
+  enabled: boolean;
+  createdAt: number; // epoch ms
+  updatedAt: number; // epoch ms
+};
+
+/**
+ * A monitored machine. Reachability only: there is no credential, port, path or
+ * command here, and there never will be — device monitoring asks the network
+ * whether a host answers and nothing more.
+ */
+export type MonitoredDevice = {
+  id: string;
+  name: string;
+  /** Normalized hostname or IP literal. Never a URL, port or address range. */
+  host: string;
+  /** computer | server | iot | other */
+  type: DeviceType;
   enabled: boolean;
   createdAt: number; // epoch ms
   updatedAt: number; // epoch ms
@@ -73,6 +92,7 @@ export type SettingsBundle = {
   websites: MonitoredWebsite[];
   apis: MonitoredApi[];
   repositories: MonitoredRepository[];
+  devices: MonitoredDevice[];
   alerts: AlertSettings;
   integrations: { github: boolean; deepseek: boolean };
 };
