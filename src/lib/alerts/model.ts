@@ -6,7 +6,7 @@
 
 export type Severity = "info" | "warning" | "critical";
 export type Status = "active" | "resolved";
-export type AlertSource = "system" | "websites" | "apis" | "github" | "ai";
+export type AlertSource = "system" | "websites" | "apis" | "github" | "ai" | "security";
 
 /** Centralized rule ids, referenced by evaluator + config + storage. */
 export const RULES = {
@@ -18,6 +18,10 @@ export const RULES = {
   WORKFLOW_FAILED: "workflow_failed",
   AI_TOKEN_BUDGET: "ai_token_budget",
   AI_COST_BUDGET: "ai_cost_budget",
+  FIREWALL_DISABLED: "firewall_disabled",
+  DEFENDER_DISABLED: "defender_disabled",
+  DEFENDER_REALTIME_DISABLED: "defender_realtime_disabled",
+  DEFENDER_UNAVAILABLE: "defender_unavailable",
 } as const;
 export type RuleId = (typeof RULES)[keyof typeof RULES];
 

@@ -24,6 +24,8 @@ import { readGithubSnapshotsSince } from "@/lib/monitoring/github-snapshots";
 import type { StoredGithubSnapshot } from "@/lib/monitoring/github-snapshots";
 import { readUsageRowsSince } from "@/lib/monitoring/ai-storage";
 import type { UsageRowForHistory } from "@/lib/monitoring/ai-storage";
+import { readSecurityFindings } from "@/lib/security/storage";
+import type { StoredSecurityFinding } from "@/lib/security/storage";
 import { readTelemetryRows } from "@/lib/telemetry/storage";
 import type { TelemetryRow } from "@/lib/telemetry/storage";
 
@@ -69,6 +71,11 @@ export function buildTimeline(range: HistoryRangeKey): TimelineEvent[] {
     events.push(...aiEvents(rangeMs, since, readUsageRowsSince(since)));
   } catch {
     /* ai slice unavailable */
+  }
+  try {
+    events.push(...securityEvents(since, readSecurityFindings()));
+  } catch {
+    /* security slice unavailable */
   }
   try {
     events.push(...alertEvents(since, readAlerts("all")));
@@ -613,6 +620,58 @@ function aiEvents(
         },
       ),
     );
+  }
+  return events;
+}
+
+/* ------------------------------------------------------------------ *
+ * Local security (finding activation / resolution only)
+ * ------------------------------------------------------------------ */
+
+/**
+ * Security findings are condition lifecycles, so a finding contributes at most
+ * two events ever: when the condition was first observed and when it cleared.
+ * An unchanged observation therefore adds nothing to the timeline, which is what
+ * keeps a stable machine from filling History with identical rows.
+ */
+function securityEvents(
+  since: number,
+  findings: StoredSecurityFinding[],
+): TimelineEvent[] {
+  const events: TimelineEvent[] = [];
+  for (const f of findings) {
+    const metadata = {
+      kind: f.kind,
+      subject: f.subject,
+      severity: f.severity,
+    };
+    if (f.status === "active" && f.firstSeenAt >= since) {
+      events.push(
+        ev(
+          "security",
+          "security_finding_active",
+          f.fingerprint,
+          f.firstSeenAt,
+          f.severity,
+          `Security · ${f.title}`,
+          f.detail,
+          metadata,
+        ),
+      );
+    } else if (f.status === "resolved" && f.resolvedAt != null && f.resolvedAt >= since) {
+      events.push(
+        ev(
+          "security",
+          "security_finding_resolved",
+          f.fingerprint,
+          f.resolvedAt,
+          undefined,
+          `Resolved · ${f.title}`,
+          f.resolution ?? f.detail,
+          metadata,
+        ),
+      );
+    }
   }
   return events;
 }

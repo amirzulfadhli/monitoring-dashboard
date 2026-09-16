@@ -220,6 +220,113 @@ export function evaluateGithub(repos: GithubObs[]): RuleVerdict[] {
   return out;
 }
 
+/* ------------------------------ security ------------------------------ */
+
+export type FirewallProfileObs = { name: string; enabled: boolean };
+
+export type SecurityObs = {
+  firewall: { available: boolean; profiles: FirewallProfileObs[] };
+  defender: {
+    available: boolean;
+    amServiceEnabled: boolean | null;
+    antivirusEnabled: boolean | null;
+    realtimeEnabled: boolean | null;
+  };
+  /**
+   * True when an earlier persisted snapshot reported Defender as available.
+   * This is what makes the availability rule a *transition* rather than a
+   * standing complaint: a machine that never had Defender (or that runs a
+   * third-party antivirus) must not raise it.
+   */
+  defenderPreviouslyAvailable: boolean;
+};
+
+/**
+ * Local security rules — deliberately few, and deliberately only about
+ * protection that reports itself as *off* or *newly absent*.
+ *
+ * There is no rule for listening ports. An open port is a normal fact about a
+ * running machine, so ports are observations (see the Security page and the
+ * unified History), never alerts; a new listener is not evidence of anything by
+ * itself.
+ *
+ * A capability that was never readable yields no verdict, so nothing is
+ * fabricated from an absent observation.
+ */
+export function evaluateSecurity(o: SecurityObs): RuleVerdict[] {
+  const out: RuleVerdict[] = [];
+
+  if (o.firewall.available) {
+    for (const p of o.firewall.profiles) {
+      const off = !p.enabled;
+      out.push(
+        mk(
+          "security",
+          RULES.FIREWALL_DISABLED,
+          `security:firewall_disabled:${p.name}`,
+          "critical",
+          "Windows Firewall disabled",
+          off
+            ? `The ${p.name} firewall profile is disabled.`
+            : `The ${p.name} firewall profile is enabled again.`,
+          off,
+          { profile: p.name },
+        ),
+      );
+    }
+  }
+
+  const d = o.defender;
+  // Null fields mean the platform did not report them — only an explicit false
+  // counts as disabled.
+  const antivirusOff =
+    d.available && (d.amServiceEnabled === false || d.antivirusEnabled === false);
+
+  if (d.available) {
+    out.push(
+      mk(
+        "security",
+        RULES.DEFENDER_DISABLED,
+        "security:defender_disabled",
+        "critical",
+        "Microsoft Defender disabled",
+        antivirusOff
+          ? "Microsoft Defender reports its antivirus protection disabled."
+          : "Microsoft Defender is protecting the machine again.",
+        antivirusOff,
+      ),
+      mk(
+        "security",
+        RULES.DEFENDER_REALTIME_DISABLED,
+        "security:defender_realtime_disabled",
+        "warning",
+        "Defender real-time protection off",
+        d.realtimeEnabled === false
+          ? "Microsoft Defender reports real-time protection disabled."
+          : "Microsoft Defender real-time protection is on again.",
+        d.realtimeEnabled === false,
+      ),
+    );
+  }
+
+  // Fires only where Defender *was* reporting and stopped.
+  out.push(
+    mk(
+      "security",
+      RULES.DEFENDER_UNAVAILABLE,
+      "security:defender_unavailable",
+      "warning",
+      "Defender status unavailable",
+      !d.available && o.defenderPreviouslyAvailable
+        ? "Microsoft Defender reported a status earlier but is not available now."
+        : "Microsoft Defender status is available.",
+      !d.available && o.defenderPreviouslyAvailable,
+    ),
+  );
+
+  return out;
+}
+
 /* -------------------------------- ai -------------------------------- */
 
 export type AiObs = {

@@ -10,7 +10,14 @@ import type { CollectorState } from "./health";
 
 export { COLLECTOR_STATE_LABELS, type CollectorState } from "./health";
 
-export const JOB_NAMES = ["telemetry", "websites", "apis", "github", "alerts"] as const;
+export const JOB_NAMES = [
+  "telemetry",
+  "websites",
+  "apis",
+  "security",
+  "github",
+  "alerts",
+] as const;
 export type JobName = (typeof JOB_NAMES)[number];
 
 /**
@@ -21,6 +28,9 @@ export const JOB_CADENCE_MS: Record<JobName, number> = {
   telemetry: 30_000,
   websites: 60_000,
   apis: 60_000, // same cadence as website monitoring
+  // Local security state (firewall / Defender / listening sockets) changes on a
+  // human timescale, so it is sampled far less often than the other collectors.
+  security: 300_000,
   github: 90_000,
   alerts: 60_000,
 };

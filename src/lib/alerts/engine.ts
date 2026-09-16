@@ -9,9 +9,10 @@
  * in one (e.g. GitHub) can never break evaluation of the others. No new
  * collectors are introduced and no duplicate external calls are made just to
  * evaluate alerts: websites and system come from persisted DB rows, AI usage
- * from the usage table, and GitHub from its persisted snapshots (no live fetch).
+ * from the usage table, GitHub from its persisted snapshots, and local security
+ * from its persisted snapshots (no live fetch, no PowerShell run).
  */
-import { DAY_MS } from "./config";
+import { alertConfig, DAY_MS } from "./config";
 import {
   getAiSettings,
   getEnabledApis,
@@ -26,10 +27,15 @@ import { readLatestApiChecks } from "@/lib/monitoring/api-storage";
 import { readLatestGithubSnapshots } from "@/lib/monitoring/github-snapshots";
 import { readAiUsage } from "@/lib/monitoring/ai-storage";
 import {
+  defenderAvailableBefore,
+  readLatestSecuritySnapshot,
+} from "@/lib/security/storage";
+import {
   evaluateSystem,
   evaluateWebsites,
   evaluateApis,
   evaluateGithub,
+  evaluateSecurity,
   evaluateAi,
 } from "./rules";
 import type { AlertCounts } from "./model";
@@ -122,6 +128,35 @@ async function runEvaluation(at: number): Promise<void> {
     for (const v of evaluateGithub(obs)) applyVerdict(v, at);
   } catch {
     // GitHub source failure is isolated; no failure alert is invented here.
+  }
+
+  // ---- local security (latest persisted snapshot; no live collection) ----
+  try {
+    // Same principle as the sources above: alert evaluation reads stored state
+    // and never runs a collector of its own, so raising a security alert costs
+    // no PowerShell process. A snapshot that is missing or older than the
+    // configured age yields no verdicts — nothing is fabricated from stale or
+    // absent observations.
+    const snapshot = readLatestSecuritySnapshot();
+    if (
+      snapshot &&
+      at - snapshot.collectedAt <= alertConfig.security.maxSnapshotAgeMs
+    ) {
+      const obs = {
+        firewall: {
+          available: snapshot.firewall.available,
+          profiles: snapshot.firewall.profiles,
+        },
+        defender: snapshot.defender,
+        defenderPreviouslyAvailable: defenderAvailableBefore(
+          snapshot.collectedAt,
+          at - alertConfig.security.defenderLookbackMs,
+        ),
+      };
+      for (const v of evaluateSecurity(obs)) applyVerdict(v, at);
+    }
+  } catch {
+    // Security source failure is isolated.
   }
 
   // ---- ai usage (persisted usage table) ----

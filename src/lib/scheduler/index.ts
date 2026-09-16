@@ -10,6 +10,7 @@
  *   telemetry job    ~30s   collectTelemetry()          + persistSnapshot()
  *   websites job     ~60s   getWebsiteResults()         (persists internally)
  *   apis job         ~60s   getApiResults()             (persists internally)
+ *   security job      ~5m   getSecurityResults()        (persists internally)
  *   github job       ~90s   getGitHubResult()           + persistGithubSnapshots()
  *   alerts job       ~60s   evaluateAlerts()            + opportunistic retention
  *
@@ -27,6 +28,7 @@ import { collectTelemetry } from "@/lib/telemetry";
 import { persistSnapshot } from "@/lib/telemetry/storage";
 import { getWebsiteResults } from "@/lib/monitoring/websites";
 import { getApiResults } from "@/lib/monitoring/apis";
+import { getSecurityResults } from "@/lib/security";
 import { getGitHubResult } from "@/lib/monitoring/github";
 import { persistGithubSnapshots } from "@/lib/monitoring/github-snapshots";
 import { evaluateAlerts } from "@/lib/alerts/engine";
@@ -50,8 +52,9 @@ const START_DELAY_MS: Record<JobName, number> = {
   telemetry: 2_000,
   websites: 6_000,
   apis: 8_000,
-  github: 10_000,
-  alerts: 15_000,
+  security: 12_000,
+  github: 14_000,
+  alerts: 17_000,
 };
 
 type JobDef = {
@@ -106,6 +109,22 @@ const JOBS: JobDef[] = [
       // configured endpoints this is a cheap no-op.
       const results = await getApiResults();
       store.apis = { value: results, at: Date.now() };
+    },
+  },
+  {
+    name: "security",
+    // The local security collector is Windows-only. On any other platform the
+    // job is inactive rather than running a foreign command line and reporting
+    // the inevitable empty result as a failure.
+    inactive: () =>
+      process.platform === "win32"
+        ? null
+        : `local security monitoring is Windows-only (platform: ${process.platform})`,
+    async run(store) {
+      // Read-only local queries; the snapshot, its findings and the port diff
+      // are persisted inside the collector.
+      const snapshot = await getSecurityResults();
+      store.security = { value: snapshot, at: Date.now() };
     },
   },
   {

@@ -21,6 +21,17 @@ export const alertConfig = {
     // How far back to read persisted history for system rules.
     lookbackMs: 5 * 60 * 1000,
   },
+  security: {
+    // A local security observation older than this is not evaluated at all: a
+    // snapshot from days ago must not keep raising an alert for state that
+    // nobody has verified since.
+    maxSnapshotAgeMs: DAY_MS,
+    // How far back to look for an earlier observation that reported Defender as
+    // available. Inside this window, "available -> unavailable" is a
+    // transition worth surfacing; a machine that never reported Defender at all
+    // (a third-party antivirus) never fires the rule.
+    defenderLookbackMs: 7 * DAY_MS,
+  },
   ai: {
     // Claude Code + direct DeepSeek total tokens in the trailing 24h.
     // null => rule disabled.

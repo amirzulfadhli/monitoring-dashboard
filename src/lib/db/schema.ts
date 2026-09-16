@@ -9,6 +9,7 @@
  *       only records the version), or a brand-new/empty file.
  *   1 = the consolidated baseline schema.
  *   2 = API endpoint monitoring (monitored_apis config + api_checks history).
+ *   3 = local security monitoring (security_snapshots + security_findings).
  *
  * Every migration must be additive and idempotent: DevPulse never drops tables,
  * deletes rows, or recreates the database. A database whose version is *newer*
@@ -18,7 +19,7 @@
 import type { DatabaseSync } from "node:sqlite";
 
 /** Current schema version. Bump when adding a migration below. */
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;
 
 /** Add a column to a table only if it does not exist yet (idempotent, additive). */
 function addColumn(
@@ -279,10 +280,64 @@ function migration2(d: DatabaseSync): void {
   `);
 }
 
+/**
+ * Version 3 — local security monitoring. Additive only: two new tables and
+ * their indexes, no existing table, index or row is touched.
+ *
+ * `security_snapshots` stores one normalized observation per collection as small
+ * JSON documents (firewall profiles, Defender status, listening sockets). These
+ * are parsed facts, never raw command output, and the per-socket record carries
+ * a process *name* at most — no path, command line or module list.
+ *
+ * `security_findings` is a condition lifecycle table (one row per condition,
+ * like `alerts`), which is what stops an unchanged observation from recording a
+ * new transition on every collection.
+ */
+function migration3(d: DatabaseSync): void {
+  d.exec(`
+    CREATE TABLE IF NOT EXISTS security_snapshots (
+      ts INTEGER PRIMARY KEY,        -- epoch ms; ts is the only row identity
+      platform TEXT NOT NULL,        -- win32 (unsupported platforms never persist)
+      firewall TEXT NOT NULL,        -- JSON {available,reason,profiles[]}
+      defender TEXT NOT NULL,        -- JSON {available,reason,...booleans}
+      ports TEXT NOT NULL,           -- JSON [{address,port,exposure,pid,process}]
+      -- Denormalized copies of the two Defender facts an alert rule needs to
+      -- compare against history; querying them out of the JSON column would
+      -- mean scanning every snapshot.
+      defenderAvailable INTEGER,
+      defenderRealtimeEnabled INTEGER
+    );
+    -- ts leads the primary key, so retention and trailing-window reads scan by
+    -- timestamp. This index serves the "was Defender available before this
+    -- snapshot" lookup that the availability rule depends on.
+    CREATE INDEX IF NOT EXISTS idx_security_snapshots_defender
+      ON security_snapshots(defenderAvailable, ts);
+  `);
+
+  d.exec(`
+    CREATE TABLE IF NOT EXISTS security_findings (
+      fingerprint TEXT PRIMARY KEY,  -- stable identity: security:kind:subject
+      kind TEXT NOT NULL,            -- firewall_disabled | defender_disabled | ...
+      subject TEXT NOT NULL,         -- profile name, protection, or address|port
+      severity TEXT NOT NULL,        -- info | warning | critical
+      title TEXT NOT NULL,
+      detail TEXT NOT NULL,          -- the active observation
+      resolution TEXT,               -- why it cleared; null while active
+      status TEXT NOT NULL,          -- active | resolved
+      firstSeenAt INTEGER NOT NULL,  -- epoch ms
+      lastSeenAt INTEGER NOT NULL,
+      resolvedAt INTEGER             -- epoch ms; null while active
+    );
+    CREATE INDEX IF NOT EXISTS idx_security_findings_status
+      ON security_findings(status, lastSeenAt);
+  `);
+}
+
 /** Ordered migrations. Each entry moves the database from version-1 to its own. */
 const MIGRATIONS: { version: number; up: (d: DatabaseSync) => void }[] = [
   { version: 1, up: migration1 },
   { version: 2, up: migration2 },
+  { version: 3, up: migration3 },
 ];
 
 function getUserVersion(d: DatabaseSync): number {

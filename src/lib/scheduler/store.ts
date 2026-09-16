@@ -13,6 +13,7 @@ import type { TelemetrySnapshot } from "@/lib/telemetry";
 import type { CheckResult } from "@/lib/monitoring/websites";
 import type { ApiCheckResult } from "@/lib/monitoring/apis";
 import type { GitHubResult } from "@/lib/monitoring/github";
+import type { SecuritySnapshot } from "@/lib/security/model";
 import type { JobName } from "./model";
 
 export type Latest<T> = { value: T; at: number };
@@ -26,6 +27,7 @@ export type SchedulerStore = {
   telemetry: Latest<TelemetrySnapshot> | null;
   websites: Latest<CheckResult[]> | null;
   apis: Latest<ApiCheckResult[]> | null;
+  security: Latest<SecuritySnapshot> | null;
   github: Latest<GitHubResult> | null;
 };
 
@@ -82,12 +84,14 @@ export function getStore(): SchedulerStore {
         telemetry: emptyJob(),
         websites: emptyJob(),
         apis: emptyJob(),
+        security: emptyJob(),
         github: emptyJob(),
         alerts: emptyJob(),
       },
       telemetry: null,
       websites: null,
       apis: null,
+      security: null,
       github: null,
     };
   }
@@ -107,6 +111,11 @@ export function getLatestWebsites(): Latest<CheckResult[]> | null {
 /** Latest scheduler-collected API check results. */
 export function getLatestApis(): Latest<ApiCheckResult[]> | null {
   return getStore().apis;
+}
+
+/** Latest scheduler-collected local security snapshot. */
+export function getLatestSecurity(): Latest<SecuritySnapshot> | null {
+  return getStore().security;
 }
 
 /** Latest scheduler-collected GitHub monitor result. */

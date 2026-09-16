@@ -23,6 +23,7 @@ const RELATED: Record<string, string[]> = {
   websites: ["website"],
   github: ["github"],
   ai: ["ai"],
+  security: ["security"],
 };
 
 const SEV: Record<string, number> = { critical: 3, warning: 2, info: 1 };
