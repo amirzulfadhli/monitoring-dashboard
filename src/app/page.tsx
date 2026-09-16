@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useLiveTelemetry } from "@/lib/use-live-telemetry";
 import { useMonitoringStatus } from "@/lib/use-monitoring-status";
 import { IntelligencePanel } from "@/components/intelligence-panel";
+import { CollectorHealth } from "@/components/collector-health";
 
 const REFRESH_MS = 4000; // live telemetry poll (~3–5s requested)
 const WARN_PCT = 90; // CPU or memory % at/above this flags a Warning status
@@ -319,6 +320,10 @@ export default function OverviewPage() {
         <DetailPanel title="System" rows={sysRows.length ? sysRows : [{ label: "System info", value: "Unavailable" }]} />
         <DetailPanel title="Network" rows={netRows.length ? netRows : [{ label: "Network info", value: "Unavailable" }]} />
       </div>
+
+      {/* Background collector health: distinct from what those collectors
+          monitor — a down website is a successful websites run. */}
+      {monitoring && <CollectorHealth jobs={monitoring.jobs} />}
 
       {/* Last 24 hours */}
       <section className="rounded-lg border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-black">

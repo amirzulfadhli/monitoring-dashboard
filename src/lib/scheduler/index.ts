@@ -29,6 +29,7 @@ import { getGitHubResult } from "@/lib/monitoring/github";
 import { persistGithubSnapshots } from "@/lib/monitoring/github-snapshots";
 import { evaluateAlerts } from "@/lib/alerts/engine";
 import { maybePruneExpired } from "@/lib/maintenance";
+import { deriveCollectorState, sanitizeErrorMessage } from "./health";
 import {
   JOB_CADENCE_MS,
   JOB_NAMES,
@@ -126,6 +127,34 @@ function errorText(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
 }
 
+/** Job definitions by name, for evaluating a precondition outside a fire. */
+const JOBS_BY_NAME = new Map(JOBS.map((def) => [def.name, def]));
+
+/**
+ * Evaluate a job's inactive precondition defensively. `fallback` is what to
+ * report if the precondition itself throws: a fire treats that as "carry on",
+ * while status reporting keeps the last known reason.
+ */
+function evalInactive(def: JobDef | undefined, fallback: string | null): string | null {
+  if (!def?.inactive) return null;
+  try {
+    return def.inactive();
+  } catch {
+    return fallback;
+  }
+}
+
+/**
+ * Configured credentials that must never reach the status payload. An upstream
+ * error message can echo back the credential it was sent, so these values are
+ * redacted verbatim on top of the generic token-shaped patterns.
+ */
+function secretValues(): string[] {
+  return [process.env.GITHUB_TOKEN, process.env.DEEPSEEK_API_KEY].filter(
+    (v): v is string => typeof v === "string" && v.length >= 8,
+  );
+}
+
 /**
  * One fire of one job. Never rejects. Skips (rather than queues) when the
  * previous run of the same job is still in flight.
@@ -140,12 +169,7 @@ async function fire(
     return;
   }
 
-  let reason: string | null = null;
-  try {
-    reason = def.inactive?.() ?? null;
-  } catch {
-    reason = null;
-  }
+  const reason = evalInactive(def, null);
   if (reason) {
     state.inactiveReason = reason;
     return;
@@ -160,16 +184,20 @@ async function fire(
     await def.run(store);
     state.lastSuccessAt = Date.now();
     state.lastError = null;
+    state.consecutiveFailures = 0;
   } catch (e) {
     // Isolation: a failing job is recorded here and nowhere else — the other
     // jobs keep their own timers and the process stays up.
     state.failures++;
+    state.consecutiveFailures++;
     state.lastErrorAt = Date.now();
+    // Sanitized at record time, so nothing unsanitized is ever stored or served.
+    const message = sanitizeErrorMessage(errorText(e), secretValues());
     // Logged once per failure streak; a persistent fault does not spam.
     if (!state.lastError) {
-      console.warn(`[scheduler] ${def.name} job failed: ${errorText(e)}`);
+      console.warn(`[scheduler] ${def.name} job failed: ${message}`);
     }
-    state.lastError = errorText(e);
+    state.lastError = message;
   } finally {
     state.running = false;
     state.lastFinishedAt = Date.now();
@@ -218,16 +246,23 @@ export function ensureSchedulerStarted(): boolean {
 function jobStatus(name: JobName, store: SchedulerStore, now: number): JobStatus {
   const s = store.jobs[name];
   const staleAfterMs = JOB_STALE_AFTER_MS[name];
-  // An inactive job is deliberately not collecting, so it is never "stale".
-  const stale =
-    !s.inactiveReason &&
-    (s.lastSuccessAt == null || now - s.lastSuccessAt > staleAfterMs);
+  // Evaluated live, not read from the last fire: an unconfigured collector must
+  // read inactive from the first status request, before it has ever run.
+  const inactiveReason = evalInactive(JOBS_BY_NAME.get(name), s.inactiveReason);
+  const state = deriveCollectorState({
+    now,
+    startedAt: store.startedAt,
+    staleAfterMs,
+    inactiveReason,
+    consecutiveFailures: s.consecutiveFailures,
+    lastSuccessAt: s.lastSuccessAt,
+  });
   return {
     cadenceMs: JOB_CADENCE_MS[name],
     staleAfterMs,
+    state,
     running: s.running,
-    stale,
-    inactiveReason: s.inactiveReason,
+    inactiveReason,
     lastStartedAt: s.lastStartedAt,
     lastFinishedAt: s.lastFinishedAt,
     lastSuccessAt: s.lastSuccessAt,
@@ -237,6 +272,7 @@ function jobStatus(name: JobName, store: SchedulerStore, now: number): JobStatus
     runs: s.runs,
     skipped: s.skipped,
     failures: s.failures,
+    consecutiveFailures: s.consecutiveFailures,
   };
 }
 

@@ -38,6 +38,7 @@ export function buildTimeline(range: HistoryRangeKey): TimelineEvent[] {
   const rangeMs = HISTORY_RANGES[range];
   const since = Date.now() - rangeMs;
   const events: TimelineEvent[] = [];
+  const names = createNameLookup();
 
   // Each source contributes independently; a failure leaves that slice empty.
   try {
@@ -48,12 +49,12 @@ export function buildTimeline(range: HistoryRangeKey): TimelineEvent[] {
     /* system slice unavailable — keep the rest */
   }
   try {
-    events.push(...websiteEvents(since, readWebsiteChecks(since)));
+    events.push(...websiteEvents(readWebsiteChecks(since), names));
   } catch {
     /* website slice unavailable */
   }
   try {
-    events.push(...githubEvents(since, readGithubSnapshotsSince(since)));
+    events.push(...githubEvents(readGithubSnapshotsSince(since), names));
   } catch {
     /* github slice unavailable */
   }
@@ -100,10 +101,19 @@ function compact(n: number): string {
   return String(Math.round(n));
 }
 
-/** Render a cost in USD, trimmed to at most 4 decimals. */
+/**
+ * Render a cost in USD, trimmed to at most 4 decimals.
+ *
+ * Equivalent to `toLocaleString("en-US", { maximumFractionDigits: 4 })` for the
+ * non-negative costs this formats — `toFixed` already bounds the fraction to 4
+ * digits, so only the thousands separators are left to render. Doing it directly
+ * avoids the ICU round-trip, which dominated the AI slice's assembly cost.
+ */
 function fmtCost(usd: number): string {
   const v = Number(usd.toFixed(4));
-  return `$${v.toLocaleString("en-US", { maximumFractionDigits: 4 })}`;
+  const [whole, fraction] = String(v).split(".");
+  const grouped = whole.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  return `$${fraction ? `${grouped}.${fraction}` : grouped}`;
 }
 
 function fmtBytes(b: number): string {
@@ -154,19 +164,57 @@ function ev(
   };
 }
 
-// Name lookups prefer the persisted settings store so renames reflect in the
-// timeline; the source-seeded arrays remain a fallback for removed targets whose
-// history still exists, and when the settings DB is unavailable.
-const siteName = (targetId: string) =>
-  listWebsites()?.find((w) => w.id === targetId)?.name ??
-  monitoredSites.find((s) => s.id === targetId)?.name ??
-  targetId;
+/**
+ * Display names for timeline subjects, resolved once per build.
+ *
+ * Names prefer the persisted settings store so renames reflect in the timeline;
+ * the source-seeded arrays remain a fallback for removed targets whose history
+ * still exists, and when the settings DB is unavailable.
+ *
+ * The settings lists are read lazily and cached for the whole build because the
+ * builders ask for them per emitted event (and, for GitHub, per snapshot pair).
+ * Resolving each lookup with its own SELECT made timeline assembly — not the
+ * event derivation — the dominant cost. The maps are read-only views of a store
+ * that is never written during a build, so the result is unchanged.
+ */
+type NameLookup = {
+  site(targetId: string): string;
+  repo(repoKey: string, snap: StoredGithubSnapshot): string;
+};
 
-const repoDisplay = (repoKey: string, snap: StoredGithubSnapshot) =>
-  snap.displayName ||
-  listRepositories()?.find((r) => `${r.owner}/${r.repo}` === repoKey)?.displayName ||
-  monitoredRepos.find((r) => `${r.owner}/${r.repo}` === repoKey)?.displayName ||
-  repoKey;
+function createNameLookup(): NameLookup {
+  let sites: Map<string, string> | null = null;
+  let repos: Map<string, string> | null = null;
+
+  return {
+    site(targetId) {
+      if (!sites) {
+        sites = new Map();
+        // Seeded first, then settings — last write wins, so a persisted rename
+        // takes precedence exactly as the previous `??` chain did.
+        for (const s of monitoredSites) if (!sites.has(s.id)) sites.set(s.id, s.name);
+        for (const w of listWebsites() ?? []) sites.set(w.id, w.name);
+      }
+      return sites.get(targetId) ?? targetId;
+    },
+    repo(repoKey, snap) {
+      // `||` semantics: a blank display name falls through to the lookups.
+      if (snap.displayName) return snap.displayName;
+      if (!repos) {
+        repos = new Map();
+        for (const r of monitoredRepos) {
+          const key = `${r.owner}/${r.repo}`;
+          if (r.displayName && !repos.has(key)) repos.set(key, r.displayName);
+        }
+        for (const r of listRepositories() ?? []) {
+          const key = `${r.owner}/${r.repo}`;
+          if (r.displayName) repos.set(key, r.displayName);
+        }
+      }
+      return repos.get(repoKey) ?? repoKey;
+    },
+  };
+}
 
 /* ------------------------------------------------------------------ *
  * System + network (hourly summaries, never raw 30s samples)
@@ -265,18 +313,23 @@ const STATE_SEV: Record<string, TimelineEvent["severity"]> = {
   down: "critical",
 };
 
-function websiteEvents(since: number, rows: StoredWebsiteCheck[]): TimelineEvent[] {
+function websiteEvents(
+  rows: StoredWebsiteCheck[],
+  names: NameLookup,
+): TimelineEvent[] {
   const events: TimelineEvent[] = [];
   if (rows.length === 0) return events;
 
   // Latest observed state per target, initialized lazily from the first in-range
-  // row (a baseline, not an event — we only emit on a later change).
-  const last = new Map<string, { state: string; ts: number }>();
+  // row (a baseline, not an event — we only emit on a later change). Only the
+  // state is needed from the previous row, so it is stored as a bare string
+  // rather than an object: this loop runs once per persisted check.
+  const last = new Map<string, string>();
 
   for (const r of rows) {
     const prev = last.get(r.targetId);
-    if (prev && prev.state !== r.state) {
-      const name = siteName(r.targetId);
+    if (prev !== undefined && prev !== r.state) {
+      const name = names.site(r.targetId);
       const sev = STATE_SEV[r.state];
       events.push(
         ev(
@@ -286,12 +339,12 @@ function websiteEvents(since: number, rows: StoredWebsiteCheck[]): TimelineEvent
           r.ts,
           sev,
           `${name} → ${r.state}`,
-          `Transitioned from ${prev.state} to ${r.state}` +
+          `Transitioned from ${prev} to ${r.state}` +
             (r.latencyMs != null ? ` · ${r.latencyMs.toFixed(0)}ms` : "") +
             (r.httpStatus != null ? ` · HTTP ${r.httpStatus}` : ""),
           {
             targetId: r.targetId,
-            from: prev.state,
+            from: prev,
             state: r.state,
             latencyMs: r.latencyMs,
             httpStatus: r.httpStatus,
@@ -299,7 +352,7 @@ function websiteEvents(since: number, rows: StoredWebsiteCheck[]): TimelineEvent
         ),
       );
     }
-    last.set(r.targetId, { state: r.state, ts: r.ts });
+    last.set(r.targetId, r.state);
   }
   return events;
 }
@@ -309,8 +362,8 @@ function websiteEvents(since: number, rows: StoredWebsiteCheck[]): TimelineEvent
  * ------------------------------------------------------------------ */
 
 function githubEvents(
-  since: number,
   rows: StoredGithubSnapshot[],
+  names: NameLookup,
 ): TimelineEvent[] {
   const events: TimelineEvent[] = [];
   if (rows.length === 0) return events;
@@ -331,7 +384,7 @@ function githubEvents(
     for (let i = 1; i < snaps.length; i++) {
       const prev = snaps[i - 1];
       const cur = snaps[i];
-      const display = repoDisplay(repoKey, cur);
+      const display = names.repo(repoKey, cur);
 
       if (cur.commitSha && prev.commitSha !== cur.commitSha) {
         events.push(

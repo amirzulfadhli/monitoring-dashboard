@@ -6,6 +6,10 @@
  * (the Overview freshness indicator imports this for the status shape).
  */
 
+import type { CollectorState } from "./health";
+
+export { COLLECTOR_STATE_LABELS, type CollectorState } from "./health";
+
 export const JOB_NAMES = ["telemetry", "websites", "github", "alerts"] as const;
 export type JobName = (typeof JOB_NAMES)[number];
 
@@ -23,30 +27,37 @@ export const JOB_CADENCE_MS: Record<JobName, number> = {
 /**
  * Staleness rule, kept explicit and simple: a source is stale once its last
  * successful collection is three cadences behind its expected interval.
+ * Derived from JOB_CADENCE_MS so the multiple cannot drift per job.
  */
-export const JOB_STALE_AFTER_MS: Record<JobName, number> = {
-  telemetry: 90_000,
-  websites: 180_000,
-  github: 300_000,
-  alerts: 180_000,
-};
+export const STALE_CADENCE_MULTIPLE = 3;
+
+export const JOB_STALE_AFTER_MS: Record<JobName, number> = Object.fromEntries(
+  JOB_NAMES.map((name) => [name, JOB_CADENCE_MS[name] * STALE_CADENCE_MULTIPLE]),
+) as Record<JobName, number>;
 
 export type JobStatus = {
   cadenceMs: number;
   staleAfterMs: number;
+  /** Single health verdict for this collector (see lib/scheduler/health.ts). */
+  state: CollectorState;
   running: boolean; // a run is in flight right now
-  stale: boolean; // last success is beyond staleAfterMs
   inactiveReason: string | null; // deliberately not collecting (e.g. no token)
+  /** Last attempt, successful or not. */
   lastStartedAt: number | null;
   lastFinishedAt: number | null;
+  /** Last successful run — the freshness reference. */
   lastSuccessAt: number | null;
   lastErrorAt: number | null;
+  /** Sanitized; never contains tokens or secrets. */
   lastError: string | null;
   lastDurationMs: number | null;
   runs: number;
   /** Fires skipped because the previous run was still in flight. */
   skipped: number;
+  /** Total failures since process start. */
   failures: number;
+  /** Failures since the last success; > 0 means the latest run threw. */
+  consecutiveFailures: number;
 };
 
 export type MonitoringFreshness = {

@@ -43,6 +43,8 @@ export type JobRuntime = {
   runs: number;
   skipped: number;
   failures: number;
+  /** Reset to 0 on success; drives the "failing" health state. */
+  consecutiveFailures: number;
 };
 
 function emptyJob(): JobRuntime {
@@ -58,6 +60,7 @@ function emptyJob(): JobRuntime {
     runs: 0,
     skipped: 0,
     failures: 0,
+    consecutiveFailures: 0,
   };
 }
 
