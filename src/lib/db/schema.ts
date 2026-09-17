@@ -11,6 +11,7 @@
  *   2 = API endpoint monitoring (monitored_apis config + api_checks history).
  *   3 = local security monitoring (security_snapshots + security_findings).
  *   4 = device reachability monitoring (monitored_devices + device_checks).
+ *   5 = local disk/storage monitoring (storage_volume_checks).
  *
  * Every migration must be additive and idempotent: DevPulse never drops tables,
  * deletes rows, or recreates the database. A database whose version is *newer*
@@ -20,7 +21,7 @@
 import type { DatabaseSync } from "node:sqlite";
 
 /** Current schema version. Bump when adding a migration below. */
-export const SCHEMA_VERSION = 4;
+export const SCHEMA_VERSION = 5;
 
 /** Add a column to a table only if it does not exist yet (idempotent, additive). */
 function addColumn(
@@ -382,12 +383,46 @@ function migration4(d: DatabaseSync): void {
   `);
 }
 
+/**
+ * Version 5 — local disk/storage monitoring. Additive only: one new table and
+ * its index, no existing table, index or row is touched.
+ *
+ * `storage_volume_checks` holds one row per observed volume per collection — the
+ * same shape as `device_checks` / `api_checks`, which is what lets the History
+ * timeline derive a per-volume threshold transition by walking the window in
+ * order. Only capacity figures the machine actually reported are stored: a row
+ * is never written with an invented or zero capacity, and no file, folder or
+ * file name is ever recorded here.
+ */
+function migration5(d: DatabaseSync): void {
+  d.exec(`
+    CREATE TABLE IF NOT EXISTS storage_volume_checks (
+      ts INTEGER,                 -- epoch ms
+      volumeId TEXT,              -- normalized local identity, e.g. "C:"
+      platform TEXT NOT NULL,     -- win32 (unsupported platforms never persist)
+      filesystem TEXT,            -- null when the platform did not report one
+      totalBytes INTEGER,         -- capacity; a row without a usable one is never written
+      usedBytes INTEGER,
+      freeBytes INTEGER,
+      usagePct REAL,              -- used / total, 0–100, one decimal
+      state TEXT,                 -- normal | warning | critical (thresholds at collection time)
+      PRIMARY KEY (ts, volumeId)
+    );
+    -- Same reasoning as the other check tables: ts leads the PK so range reads
+    -- and retention scan by timestamp; this secondary index serves the
+    -- per-volume window walk that the History transition derivation needs.
+    CREATE INDEX IF NOT EXISTS idx_storage_volume_checks_volume_ts
+      ON storage_volume_checks(volumeId, ts);
+  `);
+}
+
 /** Ordered migrations. Each entry moves the database from version-1 to its own. */
 const MIGRATIONS: { version: number; up: (d: DatabaseSync) => void }[] = [
   { version: 1, up: migration1 },
   { version: 2, up: migration2 },
   { version: 3, up: migration3 },
   { version: 4, up: migration4 },
+  { version: 5, up: migration5 },
 ];
 
 function getUserVersion(d: DatabaseSync): number {

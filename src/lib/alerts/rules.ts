@@ -388,6 +388,80 @@ export function evaluateSecurity(o: SecurityObs): RuleVerdict[] {
   return out;
 }
 
+/* ------------------------------ storage ------------------------------ */
+
+export type StorageObs = {
+  volumeId: string;
+  usagePct: number;
+  totalBytes: number;
+  freeBytes: number;
+};
+
+/** Compact byte label for an alert message, e.g. "12.4 GB". */
+function fmtBytes(b: number): string {
+  if (b >= 1 << 30) return `${(b / (1 << 30)).toFixed(1)}GB`;
+  if (b >= 1 << 20) return `${(b / (1 << 20)).toFixed(1)}MB`;
+  if (b >= 1 << 10) return `${(b / (1 << 10)).toFixed(1)}KB`;
+  return `${Math.round(b)}B`;
+}
+
+/**
+ * One warning-band rule and one critical-band rule per local volume.
+ *
+ * The two bands are mutually exclusive by construction — warning fires from
+ * `warningPct` up to (not including) `criticalPct`, critical fires at/above it —
+ * so the same volume can never hold a warning and a critical alert at the same
+ * time. A volume crossing 90% therefore resolves its warning as it opens its
+ * critical, and dropping back below 80% resolves whichever was open: that is the
+ * recovery path, handled entirely by the shared alert lifecycle.
+ *
+ * There is no rule for a collector that cannot read a volume: an unreadable
+ * machine yields no observation here, and nothing is fabricated from an absent
+ * one.
+ */
+export function evaluateStorage(
+  volumes: StorageObs[],
+  cfg: { warningPct: number; criticalPct: number },
+): RuleVerdict[] {
+  const out: RuleVerdict[] = [];
+  for (const v of volumes) {
+    const critical = v.usagePct >= cfg.criticalPct;
+    const warning = !critical && v.usagePct >= cfg.warningPct;
+    const metadata = {
+      volume: v.volumeId,
+      usagePct: Math.round(v.usagePct * 10) / 10,
+      freeBytes: v.freeBytes,
+    };
+    out.push(
+      mk(
+        "storage",
+        RULES.DISK_USAGE_WARNING,
+        `storage:disk_usage_warning:${v.volumeId}`,
+        "warning",
+        "Disk usage warning",
+        warning
+          ? `${v.volumeId} is ${pct(v.usagePct)} full — above the ${pct(cfg.warningPct)} warning threshold (${fmtBytes(v.freeBytes)} free of ${fmtBytes(v.totalBytes)}).`
+          : `${v.volumeId} usage is back under the ${pct(cfg.warningPct)} warning threshold.`,
+        warning,
+        metadata,
+      ),
+      mk(
+        "storage",
+        RULES.DISK_USAGE_CRITICAL,
+        `storage:disk_usage_critical:${v.volumeId}`,
+        "critical",
+        "Disk usage critical",
+        critical
+          ? `${v.volumeId} is ${pct(v.usagePct)} full — at or above the ${pct(cfg.criticalPct)} critical threshold (${fmtBytes(v.freeBytes)} free of ${fmtBytes(v.totalBytes)}).`
+          : `${v.volumeId} usage is below the ${pct(cfg.criticalPct)} critical threshold.`,
+        critical,
+        metadata,
+      ),
+    );
+  }
+  return out;
+}
+
 /* -------------------------------- ai -------------------------------- */
 
 export type AiObs = {

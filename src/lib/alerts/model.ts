@@ -13,7 +13,8 @@ export type AlertSource =
   | "devices"
   | "github"
   | "ai"
-  | "security";
+  | "security"
+  | "storage";
 
 /** Centralized rule ids, referenced by evaluator + config + storage. */
 export const RULES = {
@@ -30,6 +31,10 @@ export const RULES = {
   DEFENDER_DISABLED: "defender_disabled",
   DEFENDER_REALTIME_DISABLED: "defender_realtime_disabled",
   DEFENDER_UNAVAILABLE: "defender_unavailable",
+  // Two mutually exclusive bands rather than one escalating rule: a volume can
+  // never have a warning and a critical alert open at the same time.
+  DISK_USAGE_WARNING: "disk_usage_warning",
+  DISK_USAGE_CRITICAL: "disk_usage_critical",
 } as const;
 export type RuleId = (typeof RULES)[keyof typeof RULES];
 

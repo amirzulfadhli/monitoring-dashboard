@@ -16,6 +16,7 @@ export const JOB_NAMES = [
   "apis",
   "devices",
   "security",
+  "storage",
   "github",
   "alerts",
 ] as const;
@@ -35,6 +36,10 @@ export const JOB_CADENCE_MS: Record<JobName, number> = {
   // Local security state (firewall / Defender / listening sockets) changes on a
   // human timescale, so it is sampled far less often than the other collectors.
   security: 300_000,
+  // Disk capacity changes on a human timescale (installs, logs, backups), so
+  // storage is sampled on the same slow cadence as local security rather than
+  // being polled aggressively.
+  storage: 300_000,
   github: 90_000,
   alerts: 60_000,
 };

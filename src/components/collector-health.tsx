@@ -30,6 +30,7 @@ const COLLECTOR_LABELS: Record<JobName, string> = {
   apis: "APIs",
   devices: "Devices",
   security: "Security",
+  storage: "Storage",
   github: "GitHub",
   alerts: "Alerts",
 };

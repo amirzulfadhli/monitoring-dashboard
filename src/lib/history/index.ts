@@ -29,6 +29,8 @@ import type { StoredDeviceCheck } from "@/lib/devices/storage";
 import { reachabilityState } from "@/lib/devices/model";
 import { readSecurityFindings } from "@/lib/security/storage";
 import type { StoredSecurityFinding } from "@/lib/security/storage";
+import { readStorageChecks } from "@/lib/disks/storage";
+import type { StoredVolumeCheck } from "@/lib/disks/storage";
 import { readTelemetryRows } from "@/lib/telemetry/storage";
 import type { TelemetryRow } from "@/lib/telemetry/storage";
 
@@ -84,6 +86,11 @@ export function buildTimeline(range: HistoryRangeKey): TimelineEvent[] {
     events.push(...securityEvents(since, readSecurityFindings()));
   } catch {
     /* security slice unavailable */
+  }
+  try {
+    events.push(...storageEvents(readStorageChecks(since)));
+  } catch {
+    /* storage slice unavailable */
   }
   try {
     events.push(...alertEvents(since, readAlerts("all")));
@@ -743,6 +750,62 @@ function securityEvents(
         ),
       );
     }
+  }
+  return events;
+}
+
+/* ------------------------------------------------------------------ *
+ * Local storage (threshold transitions only — never one event per collection)
+ * ------------------------------------------------------------------ */
+
+const DISK_STATE_SEV: Record<string, TimelineEvent["severity"]> = {
+  warning: "warning",
+  critical: "critical",
+};
+
+/**
+ * A volume contributes an event only when its utilization *band* changes:
+ * normal → warning, warning → critical, critical → warning, warning → normal.
+ *
+ * The first in-range row is a baseline, not an event, so a volume that has been
+ * stable all along — or that DevPulse has simply never seen before — adds
+ * nothing. Since storage is sampled every ~5 minutes, emitting per collection
+ * would fill the timeline with identical rows; emitting per transition keeps an
+ * unchanged disk silent.
+ */
+function storageEvents(rows: StoredVolumeCheck[]): TimelineEvent[] {
+  const events: TimelineEvent[] = [];
+  if (rows.length === 0) return events;
+
+  const last = new Map<string, string>();
+
+  for (const r of rows) {
+    const prev = last.get(r.id);
+    if (prev !== undefined && prev !== r.state) {
+      const sev = DISK_STATE_SEV[r.state];
+      events.push(
+        ev(
+          "storage",
+          "storage_state",
+          r.id,
+          r.ts,
+          sev,
+          `${r.id} → ${r.state}`,
+          `Disk usage moved from ${prev} to ${r.state} at ${r.usagePct.toFixed(1)}%` +
+            ` · ${fmtBytes(r.freeBytes)} free of ${fmtBytes(r.totalBytes)}`,
+          {
+            volumeId: r.id,
+            filesystem: r.filesystem,
+            from: prev,
+            state: r.state,
+            usagePct: r.usagePct,
+            totalBytes: r.totalBytes,
+            freeBytes: r.freeBytes,
+          },
+        ),
+      );
+    }
+    last.set(r.id, r.state);
   }
   return events;
 }

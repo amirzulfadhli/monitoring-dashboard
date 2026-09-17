@@ -9,7 +9,7 @@ import {
 /**
  * Opportunistic retention pruning shared across the persisted monitoring tables
  * (telemetry `history`, `website_checks`, `api_checks`, `device_checks`,
- * `ai_usage`, `github_snapshots`).
+ * `storage_volume_checks`, `ai_usage`, `github_snapshots`).
  *
  * Design mirrors the storage modules it cleans: its own DatabaseSync against the
  * same on-disk file, lazily opened, and every failure degrades to a no-op so a
@@ -32,6 +32,7 @@ const PRUNE_TARGETS: { table: string; retentionMs: number }[] = [
   { table: "website_checks", retentionMs: RETENTION_MS.websiteChecks },
   { table: "api_checks", retentionMs: RETENTION_MS.apiChecks },
   { table: "device_checks", retentionMs: RETENTION_MS.deviceChecks },
+  { table: "storage_volume_checks", retentionMs: RETENTION_MS.storageChecks },
   { table: "ai_usage", retentionMs: RETENTION_MS.aiUsage },
   { table: "github_snapshots", retentionMs: RETENTION_MS.githubSnapshots },
 ];

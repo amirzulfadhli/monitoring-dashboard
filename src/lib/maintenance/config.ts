@@ -8,6 +8,7 @@
  *   - website checks:         30d
  *   - API checks:             30d
  *   - device checks:          30d
+ *   - storage volume checks:  30d
  *   - AI usage:               90d  (transcript cursor, not rows, guarantees
  *                                   Claude Code idempotency — see index.ts)
  *   - GitHub snapshots:       90d
@@ -20,6 +21,9 @@ export const RETENTION_MS = {
   websiteChecks: 30 * DAY_MS,
   apiChecks: 30 * DAY_MS,
   deviceChecks: 30 * DAY_MS,
+  // Sampled far less often than the other checks, so this is a small number of
+  // rows: it exists to bound the table, not to reduce volume.
+  storageChecks: 30 * DAY_MS,
   aiUsage: 90 * DAY_MS,
   githubSnapshots: 90 * DAY_MS,
 } as const;

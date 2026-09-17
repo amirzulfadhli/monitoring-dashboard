@@ -12,6 +12,7 @@
  *   apis job         ~60s   getApiResults()             (persists internally)
  *   devices job      ~60s   getDeviceResults()          (persists internally)
  *   security job      ~5m   getSecurityResults()        (persists internally)
+ *   storage job       ~5m   getStorageResults()         (persists internally)
  *   github job       ~90s   getGitHubResult()           + persistGithubSnapshots()
  *   alerts job       ~60s   evaluateAlerts()            + opportunistic retention
  *
@@ -32,6 +33,7 @@ import { getApiResults } from "@/lib/monitoring/apis";
 import { getDeviceResults } from "@/lib/devices";
 import { getEnabledDevices } from "@/lib/settings/service";
 import { getSecurityResults } from "@/lib/security";
+import { getStorageResults } from "@/lib/disks";
 import { getGitHubResult } from "@/lib/monitoring/github";
 import { persistGithubSnapshots } from "@/lib/monitoring/github-snapshots";
 import { evaluateAlerts } from "@/lib/alerts/engine";
@@ -57,6 +59,7 @@ const START_DELAY_MS: Record<JobName, number> = {
   apis: 8_000,
   devices: 10_000,
   security: 12_000,
+  storage: 15_000,
   github: 14_000,
   alerts: 17_000,
 };
@@ -144,6 +147,24 @@ const JOBS: JobDef[] = [
       // are persisted inside the collector.
       const snapshot = await getSecurityResults();
       store.security = { value: snapshot, at: Date.now() };
+    },
+  },
+  {
+    name: "storage",
+    // The local storage collector is Windows-only, exactly like the security
+    // collector: on any other platform the job is inactive rather than running a
+    // foreign command line and reporting the inevitable empty result as a
+    // failure.
+    inactive: () =>
+      process.platform === "win32"
+        ? null
+        : `local storage monitoring is Windows-only (platform: ${process.platform})`,
+    async run(store) {
+      // One read-only capacity query per run; the observation is persisted
+      // inside the collector. A volume being nearly full does not fail this
+      // job — it is reported as that volume's own state.
+      const snapshot = await getStorageResults();
+      store.storage = { value: snapshot, at: Date.now() };
     },
   },
   {

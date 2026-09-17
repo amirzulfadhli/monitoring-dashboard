@@ -14,6 +14,7 @@ import type { CheckResult } from "@/lib/monitoring/websites";
 import type { ApiCheckResult } from "@/lib/monitoring/apis";
 import type { GitHubResult } from "@/lib/monitoring/github";
 import type { SecuritySnapshot } from "@/lib/security/model";
+import type { StorageSnapshot } from "@/lib/disks/model";
 import type { DeviceCheckResult } from "@/lib/devices/model";
 import type { JobName } from "./model";
 
@@ -30,6 +31,7 @@ export type SchedulerStore = {
   apis: Latest<ApiCheckResult[]> | null;
   devices: Latest<DeviceCheckResult[]> | null;
   security: Latest<SecuritySnapshot> | null;
+  storage: Latest<StorageSnapshot> | null;
   github: Latest<GitHubResult> | null;
 };
 
@@ -88,6 +90,7 @@ export function getStore(): SchedulerStore {
         apis: emptyJob(),
         devices: emptyJob(),
         security: emptyJob(),
+        storage: emptyJob(),
         github: emptyJob(),
         alerts: emptyJob(),
       },
@@ -96,6 +99,7 @@ export function getStore(): SchedulerStore {
       apis: null,
       devices: null,
       security: null,
+      storage: null,
       github: null,
     };
   }
@@ -125,6 +129,11 @@ export function getLatestDevices(): Latest<DeviceCheckResult[]> | null {
 /** Latest scheduler-collected local security snapshot. */
 export function getLatestSecurity(): Latest<SecuritySnapshot> | null {
   return getStore().security;
+}
+
+/** Latest scheduler-collected local storage snapshot. */
+export function getLatestStorage(): Latest<StorageSnapshot> | null {
+  return getStore().storage;
 }
 
 /** Latest scheduler-collected GitHub monitor result. */

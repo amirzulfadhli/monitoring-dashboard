@@ -32,6 +32,7 @@ import {
   defenderAvailableBefore,
   readLatestSecuritySnapshot,
 } from "@/lib/security/storage";
+import { readLatestStorageSnapshot } from "@/lib/disks/storage";
 import {
   evaluateSystem,
   evaluateWebsites,
@@ -39,6 +40,7 @@ import {
   evaluateDevices,
   evaluateGithub,
   evaluateSecurity,
+  evaluateStorage,
   evaluateAi,
 } from "./rules";
 import type { AlertCounts } from "./model";
@@ -187,6 +189,30 @@ async function runEvaluation(at: number): Promise<void> {
     }
   } catch {
     // Security source failure is isolated.
+  }
+
+  // ---- local storage (latest persisted observation; no live query) ----
+  try {
+    // Same principle as the sources above: evaluation reads stored capacity
+    // figures and never runs a collector of its own, so raising a disk alert
+    // costs no PowerShell process. A snapshot that is missing, unreadable or
+    // older than the configured age yields no verdicts — nothing is fabricated
+    // from stale or absent measurements.
+    const snapshot = readLatestStorageSnapshot();
+    if (
+      snapshot &&
+      at - snapshot.collectedAt <= alertConfig.storage.maxSnapshotAgeMs
+    ) {
+      const obs = snapshot.volumes.map((v) => ({
+        volumeId: v.id,
+        usagePct: v.usagePct,
+        totalBytes: v.totalBytes,
+        freeBytes: v.freeBytes,
+      }));
+      for (const v of evaluateStorage(obs, alertConfig.storage)) applyVerdict(v, at);
+    }
+  } catch {
+    // Storage source failure is isolated.
   }
 
   // ---- ai usage (persisted usage table) ----

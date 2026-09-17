@@ -18,6 +18,7 @@ export type TimelineSource =
   | "github"
   | "ai"
   | "security"
+  | "storage"
   | "alert";
 
 /** Optional importance signal; undefined means informational/normal. */
@@ -64,6 +65,7 @@ export const HISTORY_SOURCES = [
   "github",
   "ai",
   "security",
+  "storage",
   "alert",
 ] as const;
 export type HistorySourceKey = (typeof HISTORY_SOURCES)[number];

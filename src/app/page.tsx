@@ -137,6 +137,38 @@ export default function OverviewPage() {
   const [summary, setSummary] = useState<HistorySummary | null>(null);
   const [summaryState, setSummaryState] = useState<"loading" | "idle" | "error">("loading");
 
+  // Highest local volume utilization, for one compact line in the header.
+  // Fetched on mount like the summary: the scheduler already collects storage
+  // server-side, so this reads collected state rather than polling a disk.
+  const [disk, setDisk] = useState<{
+    volumeId: string;
+    usagePct: number;
+    state: "normal" | "warning" | "critical";
+  } | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/storage", { cache: "no-store" });
+        if (cancelled || !res.ok) return;
+        const d = (await res.json()) as {
+          totals: { highest: { volumeId: string; usagePct: number } | null } | null;
+          volumes: { id: string; usagePct: number; state: "normal" | "warning" | "critical" }[];
+        };
+        const top = d.totals?.highest;
+        const volume = top ? d.volumes.find((v) => v.id === top.volumeId) : undefined;
+        if (top && volume) {
+          setDisk({ volumeId: top.volumeId, usagePct: top.usagePct, state: volume.state });
+        }
+      } catch {
+        // Non-fatal: the line simply stays hidden.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   // Active-alert summary for the header indicator. Fetched once on mount (like
   // the 24h summary), independent of the live poll.
   const [alertCounts, setAlertCounts] = useState<{ active: number; critical: number } | null>(null);
@@ -297,6 +329,25 @@ export default function OverviewPage() {
                 : freshness.state === "starting"
                   ? "Monitoring starting…"
                   : "Monitoring stale"}
+            </p>
+          )}
+          {/* Highest local volume utilization — one compact line, no chart. */}
+          {disk && (
+            <p className="mt-1 text-xs text-zinc-400 dark:text-zinc-500">
+              <Link href="/storage" className="hover:text-zinc-600 dark:hover:text-zinc-300">
+                Storage · {disk.volumeId}{" "}
+                <span
+                  className={
+                    disk.state === "critical"
+                      ? "text-red-600 dark:text-red-400"
+                      : disk.state === "warning"
+                        ? "text-amber-600 dark:text-amber-400"
+                        : undefined
+                  }
+                >
+                  {disk.usagePct.toFixed(0)}% used
+                </span>
+              </Link>
             </p>
           )}
         </div>

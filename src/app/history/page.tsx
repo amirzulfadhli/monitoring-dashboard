@@ -26,6 +26,7 @@ const SOURCE_TABS: { key: HistorySourceKey; label: string }[] = [
   { key: "github", label: "GitHub" },
   { key: "ai", label: "AI" },
   { key: "security", label: "Security" },
+  { key: "storage", label: "Storage" },
   { key: "alert", label: "Alerts" },
 ];
 
@@ -38,6 +39,7 @@ const sourceLabel: Record<TimelineSource, string> = {
   github: "GitHub",
   ai: "AI",
   security: "Security",
+  storage: "Storage",
   alert: "Alert",
 };
 
@@ -49,6 +51,7 @@ const sourceChip: Record<string, string> = {
   github: "text-violet-600 dark:text-violet-400",
   ai: "text-amber-600 dark:text-amber-400",
   security: "text-emerald-600 dark:text-emerald-400",
+  storage: "text-indigo-600 dark:text-indigo-400",
   alert: "text-red-600 dark:text-red-400",
 };
 

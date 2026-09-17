@@ -46,6 +46,17 @@ export const alertConfig = {
     // (a third-party antivirus) never fires the rule.
     defenderLookbackMs: 7 * DAY_MS,
   },
+  storage: {
+    // Utilization bands, matching lib/disks/model DISK_THRESHOLDS: warning from
+    // warningPct up to (but not including) criticalPct, critical at/above it.
+    // The bands are exclusive, so one volume never raises both at once.
+    warningPct: 80,
+    criticalPct: 90,
+    // A storage observation older than this is not evaluated at all: a reading
+    // from days ago must not keep raising an alert about capacity that nobody
+    // has measured since. Comfortably wider than the ~5m collection cadence.
+    maxSnapshotAgeMs: DAY_MS,
+  },
   ai: {
     // Claude Code + direct DeepSeek total tokens in the trailing 24h.
     // null => rule disabled.
