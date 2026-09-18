@@ -44,6 +44,7 @@ import {
   listProjectRows,
   updateProjectRow,
 } from "./storage";
+import { projectHealthOf } from "./health";
 import {
   ALERT_SOURCE_TO_PROJECT_SOURCE,
   PROJECT_SOURCE_LABELS,
@@ -53,7 +54,6 @@ import {
   type ProjectSourceType,
   type ProjectSummary,
   type SourceHealth,
-  type SourceHealthCounts,
 } from "./types";
 import {
   validateProjectDescription,
@@ -179,10 +179,6 @@ function emptyCounts(): ProjectSourceCounts {
   return { total: 0, website: 0, repository: 0, api: 0, device: 0 };
 }
 
-function emptyHealth(): SourceHealthCounts {
-  return { total: 0, healthy: 0, warn: 0, critical: 0, unknown: 0 };
-}
-
 /** Resolve the sources of one project, dropping any dangling association. */
 function resolveSources(
   associations: { sourceType: ProjectSourceType; sourceId: string }[],
@@ -202,19 +198,13 @@ function resolveSources(
   return out;
 }
 
-function countSources(sources: ProjectSource[]): {
-  counts: ProjectSourceCounts;
-  health: SourceHealthCounts;
-} {
+function countSources(sources: ProjectSource[]): ProjectSourceCounts {
   const counts = emptyCounts();
-  const health = emptyHealth();
   for (const s of sources) {
     counts.total++;
     counts[s.type]++;
-    health.total++;
-    health[s.health]++;
   }
-  return { counts, health };
+  return counts;
 }
 
 /* ------------------------------------------------------------------ *
@@ -229,6 +219,9 @@ export function listProjects(): ProjectSummary[] {
   const index = sourceIndex();
   const health = healthMaps();
   const associations = listAssociations() ?? [];
+  // One instant for the whole build: every project is evaluated as of the same
+  // moment, so the list cannot disagree with itself about what is stale.
+  const now = Date.now();
 
   const byProject = new Map<string, { sourceType: ProjectSourceType; sourceId: string }[]>();
   for (const a of associations) {
@@ -238,10 +231,12 @@ export function listProjects(): ProjectSummary[] {
   }
 
   return rows.map((p) => {
-    const { counts, health: h } = countSources(
-      resolveSources(byProject.get(p.id) ?? [], index, health),
-    );
-    return { ...p, sources: counts, health: h };
+    const sources = resolveSources(byProject.get(p.id) ?? [], index, health);
+    return {
+      ...p,
+      sources: countSources(sources),
+      health: projectHealthOf(sources, now),
+    };
   });
 }
 
@@ -255,7 +250,11 @@ export function getProject(id: string): ProjectDetail | null {
   const health = healthMaps();
 
   const sources = resolveSources(associations, index, health);
-  const { counts, health: healthCounts } = countSources(sources);
+  const counts = countSources(sources);
+  // Derived, not collected: the same stored states the table below renders,
+  // reduced by the pure rules in ./health. No alert is raised and no history row
+  // is written from here.
+  const projectHealth = projectHealthOf(sources, Date.now());
 
   // Existing source alerts only. Read straight from storage — never through the
   // evaluator — so rendering a project cannot run a rule or reach the network.
@@ -277,7 +276,7 @@ export function getProject(id: string): ProjectDetail | null {
       return { ...s, health: h?.health ?? "unknown", checkedAt: h?.at ?? null };
     });
 
-  return { ...project, sources, counts, health: healthCounts, unassigned, alerts };
+  return { ...project, sources, counts, health: projectHealth, unassigned, alerts };
 }
 
 /**

@@ -6,6 +6,7 @@ import { useLiveTelemetry } from "@/lib/use-live-telemetry";
 import { useMonitoringStatus } from "@/lib/use-monitoring-status";
 import { IntelligencePanel } from "@/components/intelligence-panel";
 import { CollectorHealth } from "@/components/collector-health";
+import { ProjectsSummary } from "@/components/projects-summary";
 
 const REFRESH_MS = 4000; // live telemetry poll (~3–5s requested)
 const WARN_PCT = 90; // CPU or memory % at/above this flags a Warning status
@@ -375,6 +376,10 @@ export default function OverviewPage() {
       {/* Background collector health: distinct from what those collectors
           monitor — a down website is a successful websites run. */}
       {monitoring && <CollectorHealth jobs={monitoring.jobs} />}
+
+      {/* Project grouping, when any project exists. Derived from stored source
+          state only — opening the Overview checks nothing. */}
+      <ProjectsSummary />
 
       {/* Last 24 hours */}
       <section className="rounded-lg border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-black">

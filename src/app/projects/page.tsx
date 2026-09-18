@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import type { ProjectSummary, SourceHealth } from "@/lib/projects/types";
+import type { ProjectHealth, ProjectHealthState, ProjectSummary, SourceHealth } from "@/lib/projects/types";
 
 /**
  * Projects list. A project groups sources DevPulse already monitors, so this
@@ -33,6 +33,14 @@ const healthText: Record<SourceHealth, string> = {
   unknown: "text-zinc-400 dark:text-zinc-500",
 };
 
+/** Project state -> the source health band and wording it is read from. */
+const projectState: Record<ProjectHealthState, { band: SourceHealth; label: string }> = {
+  healthy: { band: "healthy", label: "Healthy" },
+  degraded: { band: "warn", label: "Degraded" },
+  critical: { band: "critical", label: "Critical" },
+  unknown: { band: "unknown", label: "Unknown" },
+};
+
 type Api = { count: number; projects: ProjectSummary[] };
 
 function fmtAgo(ts: number) {
@@ -45,30 +53,46 @@ function fmtAgo(ts: number) {
   return `${Math.floor(h / 24)}d ago`;
 }
 
-/** Compact observed-status summary: only non-zero bands are named. */
-function StatusSummary({ health, total }: { health: ProjectSummary["health"]; total: number }) {
-  if (total === 0) {
-    return <span className="text-xs text-zinc-400 dark:text-zinc-500">No sources</span>;
-  }
+/**
+ * Project health, as state plus the source bands behind it. The state is the
+ * headline; the counts are what it was read from, and the reasons (bounded, from
+ * observable source state only) are the tooltip rather than another row.
+ */
+function HealthCell({ health }: { health: ProjectHealth }) {
+  const { band, label } = projectState[health.state];
   const bands: { key: SourceHealth; label: string }[] = [
     { key: "critical", label: "failing" },
     { key: "warn", label: "degraded" },
-    { key: "healthy", label: "healthy" },
     { key: "unknown", label: "unreported" },
   ];
+  const impaired = bands.filter((b) => health.counts[b.key] > 0);
+  const title = health.reasons.length
+    ? health.reasons.map((r) => r.message).join("; ")
+    : health.counts.total === 0
+      ? "No sources are associated with this project."
+      : "All associated sources are healthy.";
+
   return (
-    <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
-      {bands
-        .filter((b) => health[b.key] > 0)
-        .map((b) => (
-          <span key={b.key} className="flex items-center gap-1.5">
-            <span className={`h-2 w-2 rounded-full ${healthDot[b.key]}`} aria-hidden="true" />
-            <span className={`font-mono text-xs tabular-nums ${healthText[b.key]}`}>
-              {health[b.key]}
-            </span>
-            <span className="text-xs text-zinc-500 dark:text-zinc-400">{b.label}</span>
+    <span className="block" title={title}>
+      <span className="flex items-center gap-1.5">
+        <span className={`h-2 w-2 rounded-full ${healthDot[band]}`} aria-hidden="true" />
+        <span className={`text-sm ${healthText[band]}`}>{label}</span>
+      </span>
+      <span className="mt-0.5 flex flex-wrap items-center gap-x-2 text-[11px] text-zinc-400 dark:text-zinc-500">
+        {health.counts.total === 0 ? (
+          <span>no sources</span>
+        ) : impaired.length === 0 ? (
+          <span className="tabular-nums">
+            {health.counts.healthy}/{health.counts.total} healthy
           </span>
-        ))}
+        ) : (
+          impaired.map((b) => (
+            <span key={b.key} className="tabular-nums">
+              {health.counts[b.key]} {b.label}
+            </span>
+          ))
+        )}
+      </span>
     </span>
   );
 }
@@ -150,7 +174,7 @@ export default function ProjectsPage() {
             <tr className="border-b border-zinc-200 text-[11px] uppercase tracking-wider text-zinc-400 dark:border-zinc-800 dark:text-zinc-500">
               <th className="px-4 py-2.5 font-medium">Project</th>
               <th className="px-4 py-2.5 font-medium">Sources</th>
-              <th className="px-4 py-2.5 font-medium">Observed status</th>
+              <th className="px-4 py-2.5 font-medium">Health</th>
               <th className="px-4 py-2.5 font-medium">Updated</th>
             </tr>
           </thead>
@@ -189,7 +213,7 @@ export default function ProjectsPage() {
                   </span>
                 </td>
                 <td className="px-4 py-3">
-                  <StatusSummary health={p.health} total={p.health.total} />
+                  <HealthCell health={p.health} />
                 </td>
                 <td className="px-4 py-3 text-xs text-zinc-400 dark:text-zinc-500">
                   <span className="tabular-nums">{fmtAgo(p.updatedAt)}</span>

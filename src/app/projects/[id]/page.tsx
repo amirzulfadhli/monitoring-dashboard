@@ -6,6 +6,8 @@ import { useParams, useRouter } from "next/navigation";
 import type { Severity } from "@/lib/alerts/model";
 import type {
   ProjectDetail,
+  ProjectHealth,
+  ProjectHealthState,
   ProjectSource,
   ProjectSourceType,
   SourceHealth,
@@ -34,6 +36,13 @@ const healthDot: Record<SourceHealth, string> = {
   warn: "bg-amber-500",
   critical: "bg-red-500",
   unknown: "bg-zinc-300 dark:bg-zinc-600",
+};
+
+const projectState: Record<ProjectHealthState, { band: SourceHealth; label: string }> = {
+  healthy: { band: "healthy", label: "Healthy" },
+  degraded: { band: "warn", label: "Degraded" },
+  critical: { band: "critical", label: "Critical" },
+  unknown: { band: "unknown", label: "Unknown" },
 };
 
 const sevDot: Record<Severity, string> = {
@@ -219,6 +228,8 @@ export default function ProjectDetailPage() {
           </button>
         </div>
       </div>
+
+      <HealthBanner health={project.health} />
 
       {editing && (
         <form
@@ -409,6 +420,48 @@ export default function ProjectDetailPage() {
         run a check. Unassigning a source stops grouping only — monitoring is unchanged.
       </p>
     </div>
+  );
+}
+
+/**
+ * Project health: the state, the source bands it was read from, and the
+ * deterministic reasons behind it. No gauge, no percentage — the reasons name
+ * the sources responsible, and nothing here is inferred beyond stored state.
+ */
+function HealthBanner({ health }: { health: ProjectHealth }) {
+  const { band, label } = projectState[health.state];
+  const { counts } = health;
+  const summary =
+    counts.total === 0
+      ? "No sources are associated with this project."
+      : [
+          counts.critical && `${counts.critical} failing`,
+          counts.warn && `${counts.warn} degraded`,
+          counts.unknown && `${counts.unknown} unreported`,
+          counts.healthy && `${counts.healthy} healthy`,
+        ]
+          .filter(Boolean)
+          .join(" · ");
+
+  return (
+    <section className="rounded-lg border border-zinc-200 bg-white px-4 py-3 dark:border-zinc-800 dark:bg-black">
+      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+        <span className="flex items-center gap-1.5">
+          <span className={`h-2 w-2 rounded-full ${healthDot[band]}`} aria-hidden="true" />
+          <span className="text-sm font-medium text-zinc-900 dark:text-zinc-50">{label}</span>
+        </span>
+        <span className="text-xs text-zinc-500 tabular-nums dark:text-zinc-400">{summary}</span>
+      </div>
+      {health.reasons.length > 0 && (
+        <ul className="mt-1.5 space-y-0.5">
+          {health.reasons.map((r) => (
+            <li key={`${r.type}:${r.id}`} className="text-xs text-zinc-500 dark:text-zinc-400">
+              {r.message}
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
   );
 }
 

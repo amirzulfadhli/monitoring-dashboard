@@ -76,6 +76,61 @@ export type SourceHealthCounts = {
   unknown: number;
 };
 
+/**
+ * Health of a whole project. Four states, no score: a project is a group of
+ * things DevPulse watches, so its health is the worst thing being watched, not
+ * a weighted number. The rules live in ./health.
+ */
+export type ProjectHealthState = "healthy" | "degraded" | "critical" | "unknown";
+
+/** Why a source is not healthy. One code per observable condition. */
+export type ProjectHealthReasonCode =
+  | "down" // website / API returned a failing check
+  | "degraded" // website / API returned a partial failure
+  | "unreachable" // device did not answer
+  | "attention" // repository needs a human look
+  | "stale" // the stored observation is too old to be evidence
+  | "no_data" // nothing has ever been observed
+  | "disabled"; // deliberately not monitored
+
+/**
+ * The normalized project-health input: the shape every source kind is reduced
+ * to. It is a subset of ProjectSource, so the sources a project already resolves
+ * are passed straight in — there is no second model to keep in step.
+ */
+export type ProjectHealthSource = {
+  type: ProjectSourceType;
+  /** The source's own id, so a reason can name a source unambiguously. */
+  id: string;
+  name: string;
+  health: SourceHealth;
+  /** Epoch ms of the observation behind `health`; null when there is none. */
+  checkedAt: number | null;
+  enabled: boolean;
+};
+
+/** One deterministic, observable reason a project is not healthy. */
+export type ProjectHealthReason = {
+  type: ProjectSourceType;
+  /** The source's own id — two sources may share a display name. */
+  id: string;
+  name: string;
+  /** The source's normalized state at evaluation time. */
+  state: SourceHealth;
+  code: ProjectHealthReasonCode;
+  /** Human sentence built from the code — never generated, never narrated. */
+  message: string;
+};
+
+/** The derived health of a project. Pure output of ./health#projectHealthOf. */
+export type ProjectHealth = {
+  state: ProjectHealthState;
+  reasons: ProjectHealthReason[];
+  counts: SourceHealthCounts;
+  /** Epoch ms the evaluation ran; every input is as of this instant. */
+  evaluatedAt: number;
+};
+
 export type ProjectSourceCounts = {
   total: number;
   website: number;
@@ -87,14 +142,16 @@ export type ProjectSourceCounts = {
 /** A project as shown in the list: metadata plus derived source summaries. */
 export type ProjectSummary = Project & {
   sources: ProjectSourceCounts;
-  health: SourceHealthCounts;
+  /** Derived project health: state, deterministic reasons, per-state counts. */
+  health: ProjectHealth;
 };
 
 /** A project plus the sources it currently groups. */
 export type ProjectDetail = Project & {
   sources: ProjectSource[];
   counts: ProjectSourceCounts;
-  health: SourceHealthCounts;
+  /** Derived project health: state, deterministic reasons, per-state counts. */
+  health: ProjectHealth;
   /**
    * Configured sources that are not in this project, so the detail page can
    * offer assignment without a second round-trip. Derived from the same

@@ -177,7 +177,9 @@ test("crud: create, list, read and update a project", (t) => {
     const summaries = listProjects();
     assert.equal(summaries.length, 1);
     assert.equal(summaries[0].sources.total, 0);
-    assert.equal(summaries[0].health.unknown, 0);
+    // A project with nothing grouped is unknown — never healthy.
+    assert.equal(summaries[0].health.state, "unknown");
+    assert.equal(summaries[0].health.counts.total, 0);
 
     const detail = getProject(p.id);
     assert.ok(detail);
@@ -466,13 +468,16 @@ test("read: a project page never collects, checks or fetches anything", (t) => {
       assert.equal(detail.sources.length, 1);
       // No stored observation exists, so the state is honestly unknown.
       assert.equal(detail.sources[0].health, "unknown");
-      assert.deepEqual(listProjects()[0].health, {
+      // Derived project health says the same thing, and says why.
+      assert.equal(listProjects()[0].health.state, "unknown");
+      assert.deepEqual(listProjects()[0].health.counts, {
         total: 1,
         healthy: 0,
         warn: 0,
         critical: 0,
         unknown: 1,
       });
+      assert.match(detail.health.reasons[0].message, /has no monitoring data$/);
     } finally {
       globalThis.fetch = realFetch;
     }
