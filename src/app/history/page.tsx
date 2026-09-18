@@ -63,6 +63,20 @@ const sevDot: Record<string, string> = {
 
 type Api = { range: string; count: number; events: TimelineEvent[] };
 
+type ProjectOption = { id: string; name: string };
+
+/**
+ * Project filter. Events are labelled server-side with the project their source
+ * belongs to *now* — DevPulse stores no historical membership, so this filter
+ * answers "events from sources grouped here today", not "events that were in
+ * this project at the time". Sources that belong to no project carry no
+ * projectId and are only visible under "All projects".
+ */
+function projectIdOf(e: TimelineEvent): string | null {
+  const v = e.metadata?.projectId;
+  return typeof v === "string" ? v : null;
+}
+
 function matches(source: TimelineSource, filter: HistorySourceKey): boolean {
   if (filter === "all") return true;
   if (filter === "system") return source === "system" || source === "network";
@@ -81,8 +95,29 @@ function fmtWhen(ts: number) {
 export default function HistoryPage() {
   const [range, setRange] = useState<HistoryRangeKey>("24H");
   const [filter, setFilter] = useState<HistorySourceKey>("all");
+  const [project, setProject] = useState<string>("all");
+  const [projects, setProjects] = useState<ProjectOption[]>([]);
   const [data, setData] = useState<Api | null>(null);
   const [state, setState] = useState<"loading" | "error" | "ok">("loading");
+
+  // The project list is configuration and changes rarely, so it is read once —
+  // not on every timeline refresh.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/projects", { cache: "no-store" });
+        if (!res.ok) return;
+        const d = (await res.json()) as { projects: ProjectOption[] };
+        if (!cancelled) setProjects(d.projects ?? []);
+      } catch {
+        /* no project filter — the timeline itself is unaffected */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -114,9 +149,10 @@ export default function HistoryPage() {
   // re-filtering here avoids a second round-trip per source tab.
   const visible = useMemo(() => {
     const base = data?.events ?? [];
-    if (filter === "all") return base;
-    return base.filter((e) => matches(e.source, filter));
-  }, [data, filter]);
+    const bySource = filter === "all" ? base : base.filter((e) => matches(e.source, filter));
+    if (project === "all") return bySource;
+    return bySource.filter((e) => projectIdOf(e) === project);
+  }, [data, filter, project]);
 
   const tabClass = (on: boolean) =>
     `rounded-md px-3 py-1.5 text-[13px] font-medium transition-colors ${
@@ -141,9 +177,11 @@ export default function HistoryPage() {
   } else if (visible.length === 0) {
     body = (
       <div className="flex h-32 items-center justify-center rounded-lg border border-zinc-200 bg-white text-sm text-zinc-400 dark:border-zinc-800 dark:bg-black dark:text-zinc-500">
-        {filter === "all"
-          ? "No events in this window yet."
-          : "No events for this source in the window."}
+        {project !== "all"
+          ? "No events in this window for sources grouped in this project."
+          : filter === "all"
+            ? "No events in this window yet."
+            : "No events for this source in the window."}
       </div>
     );
   } else {
@@ -179,7 +217,28 @@ export default function HistoryPage() {
             {t.label}
           </button>
         ))}</div>
-        <div className="flex items-center gap-1">{RANGE_TABS.map((t) => (
+        <div className="flex items-center gap-2">
+          {projects.length > 0 && (
+            <>
+              <label htmlFor="history-project" className="sr-only">
+                Filter by project
+              </label>
+              <select
+                id="history-project"
+                value={project}
+                onChange={(e) => setProject(e.target.value)}
+                className="rounded-md border border-zinc-300 bg-white px-2 py-1.5 text-[13px] text-zinc-700 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-black dark:text-zinc-300"
+              >
+                <option value="all">All projects</option>
+                {projects.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                  </option>
+                ))}
+              </select>
+            </>
+          )}
+          <div className="flex items-center gap-1">{RANGE_TABS.map((t) => (
           <button
             key={t.key}
             onClick={() => setRange(t.key)}
@@ -188,13 +247,22 @@ export default function HistoryPage() {
           >
             {t.label}
           </button>
-        ))}</div>
+          ))}</div>
+        </div>
       </div>
 
       {data && state === "ok" && (
         <p className="-mt-3 text-xs text-zinc-400 dark:text-zinc-500">
           {data.count} event{data.count === 1 ? "" : "s"} across all sources · showing{" "}
           {visible.length} in this view
+          {project !== "all" && (
+            <>
+              {" · "}
+              <span title="DevPulse stores the source's current project, not its project at the time of the event.">
+                filtered by current project membership
+              </span>
+            </>
+          )}
         </p>
       )}
 

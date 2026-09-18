@@ -33,6 +33,8 @@ import { readStorageChecks } from "@/lib/disks/storage";
 import type { StoredVolumeCheck } from "@/lib/disks/storage";
 import { readTelemetryRows } from "@/lib/telemetry/storage";
 import type { TelemetryRow } from "@/lib/telemetry/storage";
+import { projectMembership } from "@/lib/projects/service";
+import { ALERT_SOURCE_TO_PROJECT_SOURCE } from "@/lib/projects/types";
 
 import {
   HISTORY_RANGES,
@@ -42,7 +44,14 @@ import {
   type TimelineSource,
 } from "./model";
 
-/** Build the full newest-first timeline over a range. Never throws. */
+/**
+ * Build the full newest-first timeline over a range. Never throws.
+ *
+ * Project grouping is applied as a labelling pass over the finished events (see
+ * `scopeToProject`). It changes no event's identity, timestamp or derivation: an
+ * event that belongs to a source currently grouped in a project simply carries
+ * that project's id and name, so the History page can filter by project.
+ */
 export function buildTimeline(range: HistoryRangeKey): TimelineEvent[] {
   const rangeMs = HISTORY_RANGES[range];
   const since = Date.now() - rangeMs;
@@ -100,7 +109,63 @@ export function buildTimeline(range: HistoryRangeKey): TimelineEvent[] {
 
   // Newest first; cap total so a response is always bounded.
   events.sort((a, b) => b.ts - a.ts);
-  return events.slice(0, 2000);
+  return scopeToProject(events.slice(0, 2000));
+}
+
+/* ------------------------------------------------------------------ *
+ * Project grouping (Task 25)
+ *
+ * A project is a label over sources, not an event store, so there is no
+ * historical membership to replay: the association a source has *now* is the
+ * only one that exists. Events therefore carry the source's current project, and
+ * an event that predates the association is labelled with the same project as
+ * one that follows it. Representing membership as of the event's own timestamp
+ * would need event-sourced association history, which this milestone
+ * deliberately does not add. Nothing is rewritten, duplicated or invented: an
+ * ungrouped source's events carry no project at all.
+ * ------------------------------------------------------------------ */
+
+/** Membership key an event's source is looked up by. */
+function projectRefOf(e: TimelineEvent): string | null {
+  const m = e.metadata;
+  if (!m) return null;
+  switch (e.source) {
+    case "website":
+      return typeof m.targetId === "string" ? `website:${m.targetId}` : null;
+    case "api":
+      return typeof m.targetId === "string" ? `api:${m.targetId}` : null;
+    case "device":
+      return typeof m.deviceId === "string" ? `device:${m.deviceId}` : null;
+    case "github":
+      return typeof m.repoKey === "string" ? `repository:${m.repoKey}` : null;
+    case "alert":
+      return typeof m.sourceRef === "string" ? m.sourceRef : null;
+    default:
+      // System, network, AI, security and storage events are machine-level and
+      // are never grouped into a project.
+      return null;
+  }
+}
+
+/** Label each source event with its source's current project. Never throws. */
+function scopeToProject(events: TimelineEvent[]): TimelineEvent[] {
+  let membership: Map<string, { id: string; name: string }>;
+  try {
+    membership = projectMembership();
+  } catch {
+    membership = new Map();
+  }
+  if (membership.size === 0) return events;
+
+  return events.map((e) => {
+    const ref = projectRefOf(e);
+    const project = ref ? membership.get(ref) : undefined;
+    if (!project) return e;
+    return {
+      ...e,
+      metadata: { ...e.metadata, projectId: project.id, projectName: project.name },
+    };
+  });
 }
 
 /* ------------------------------------------------------------------ *
@@ -814,6 +879,20 @@ function storageEvents(rows: StoredVolumeCheck[]): TimelineEvent[] {
  * Alerts (activation / resolution — derived only from persisted state)
  * ------------------------------------------------------------------ */
 
+/**
+ * The project-membership key an alert points at, or undefined for a machine-level
+ * alert (system, AI, security, storage) that no project can group.
+ *
+ * Every source-level rule fingerprints as `<alertSource>:<rule>:<sourceId>`, so
+ * the trailing segment is the id of the source the alert is about. This is a
+ * read of an existing fingerprint — no rule, severity or lifecycle changes.
+ */
+function alertSourceRef(a: AlertRecord): string | undefined {
+  const type = ALERT_SOURCE_TO_PROJECT_SOURCE[a.source];
+  if (!type) return undefined;
+  return `${type}:${a.fingerprint.slice(a.fingerprint.lastIndexOf(":") + 1)}`;
+}
+
 function alertEvents(since: number, alerts: AlertRecord[]): TimelineEvent[] {
   const events: TimelineEvent[] = [];
   for (const a of alerts) {
@@ -832,6 +911,7 @@ function alertEvents(since: number, alerts: AlertRecord[]): TimelineEvent[] {
             ruleId: a.ruleId,
             alertSource: a.source,
             severity: a.severity,
+            sourceRef: alertSourceRef(a) ?? null,
           },
         ),
       );
@@ -849,6 +929,7 @@ function alertEvents(since: number, alerts: AlertRecord[]): TimelineEvent[] {
             ruleId: a.ruleId,
             alertSource: a.source,
             severity: a.severity,
+            sourceRef: alertSourceRef(a) ?? null,
           },
         ),
       );

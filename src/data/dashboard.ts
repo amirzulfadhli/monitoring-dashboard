@@ -4,8 +4,7 @@ export type NavItem = {
   href?: string;
 };
 
-// Planned dashboard sections. Only "Overview" and "Network" are routed for
-// now; the rest are inert until their pages exist.
+// Dashboard sections. Items without an href are inert until their page exists.
 export const navSections: NavItem[] = [
   { label: "Overview", href: "/" },
   { label: "Network", href: "/network" },
@@ -13,7 +12,7 @@ export const navSections: NavItem[] = [
   { label: "AI Usage", href: "/ai-usage" },
   { label: "Websites", href: "/websites" },
   { label: "GitHub", href: "/github" },
-  { label: "Projects" },
+  { label: "Projects", href: "/projects" },
   { label: "Servers" },
   { label: "Database" },
   { label: "Devices", href: "/devices" },

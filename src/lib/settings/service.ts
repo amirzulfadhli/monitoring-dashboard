@@ -12,6 +12,7 @@ import { alertConfig } from "@/lib/alerts/config";
 import type { ApiTarget } from "@/lib/monitoring/apis";
 
 import { deviceTypeOf, type MonitorableDevice } from "@/lib/devices/model";
+import { disassociateSource } from "@/lib/projects/storage";
 
 import {
   deleteApi,
@@ -250,7 +251,11 @@ export async function updateWebsiteFields(
 }
 
 export function removeWebsite(id: string): MutateResult {
-  return deleteWebsite(id) ? { ok: true } : fail("Could not remove the website.");
+  if (!deleteWebsite(id)) return fail("Could not remove the website.");
+  // A removed source must not leave a project membership pointing at nothing.
+  // The project itself is untouched — only this source's group label goes.
+  disassociateSource("website", id);
+  return { ok: true };
 }
 
 /* ------------------------------- API monitors ------------------------------ */
@@ -327,7 +332,9 @@ export async function updateApiFields(
 }
 
 export function removeApi(id: string): MutateResult {
-  return deleteApi(id) ? { ok: true } : fail("Could not remove the API monitor.");
+  if (!deleteApi(id)) return fail("Could not remove the API monitor.");
+  disassociateSource("api", id); // see removeWebsite
+  return { ok: true };
 }
 
 /* ------------------------------- devices ------------------------------- */
@@ -395,7 +402,9 @@ export function updateDeviceFields(
 }
 
 export function removeDevice(id: string): MutateResult {
-  return deleteDevice(id) ? { ok: true } : fail("Could not remove the device.");
+  if (!deleteDevice(id)) return fail("Could not remove the device.");
+  disassociateSource("device", id); // see removeWebsite
+  return { ok: true };
 }
 
 export async function createRepository(input: {
@@ -439,7 +448,9 @@ export async function updateRepositoryFields(
 }
 
 export function removeRepository(id: string): MutateResult {
-  return deleteRepository(id) ? { ok: true } : fail("Could not remove the repository.");
+  if (!deleteRepository(id)) return fail("Could not remove the repository.");
+  disassociateSource("repository", id); // see removeWebsite
+  return { ok: true };
 }
 
 /** Persist alert settings. Any omitted subsystem keeps its current value. */

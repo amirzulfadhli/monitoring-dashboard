@@ -12,6 +12,7 @@
  *   3 = local security monitoring (security_snapshots + security_findings).
  *   4 = device reachability monitoring (monitored_devices + device_checks).
  *   5 = local disk/storage monitoring (storage_volume_checks).
+ *   6 = project grouping (projects + project_sources).
  *
  * Every migration must be additive and idempotent: DevPulse never drops tables,
  * deletes rows, or recreates the database. A database whose version is *newer*
@@ -21,7 +22,7 @@
 import type { DatabaseSync } from "node:sqlite";
 
 /** Current schema version. Bump when adding a migration below. */
-export const SCHEMA_VERSION = 5;
+export const SCHEMA_VERSION = 6;
 
 /** Add a column to a table only if it does not exist yet (idempotent, additive). */
 function addColumn(
@@ -416,6 +417,55 @@ function migration5(d: DatabaseSync): void {
   `);
 }
 
+/**
+ * Version 6 — project grouping. Additive only: two new tables and their
+ * indexes, no existing table, index or row is touched.
+ *
+ * A project is an organizational label over sources DevPulse already monitors;
+ * it never collects data of its own, and no check/snapshot row is copied here.
+ *
+ * `project_sources` is the association table. Its composite primary key
+ * (sourceType, sourceId) is the whole one-project-per-source rule: a source row
+ * cannot be inserted twice, so assigning an already-assigned source updates the
+ * existing row (reassignment) instead of creating a second membership.
+ *
+ * There is deliberately no FOREIGN KEY: the referenced ids live in four
+ * different tables (`monitored_websites`, `monitored_repositories`,
+ * `monitored_apis`, `monitored_devices`) with different id shapes, and the
+ * storage modules never enable `PRAGMA foreign_keys`. Referential safety comes
+ * from the other direction instead — an association is only ever written for a
+ * source that exists (checked in the service layer), dangling rows are ignored
+ * on read, and removing a source clears its association. Deleting a project
+ * deletes only its association rows, never a source or any history.
+ */
+function migration6(d: DatabaseSync): void {
+  d.exec(`
+    CREATE TABLE IF NOT EXISTS projects (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      description TEXT,                 -- optional, null when unset
+      createdAt INTEGER NOT NULL,       -- epoch ms
+      updatedAt INTEGER NOT NULL        -- epoch ms
+    );
+    -- Two projects differing only in case would be indistinguishable in the UI.
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_projects_name
+      ON projects (name COLLATE NOCASE);
+  `);
+
+  d.exec(`
+    CREATE TABLE IF NOT EXISTS project_sources (
+      projectId TEXT NOT NULL,
+      sourceType TEXT NOT NULL,     -- website | repository | api | device
+      sourceId TEXT NOT NULL,       -- the source's own stable id
+      createdAt INTEGER NOT NULL,   -- epoch ms the source joined this project
+      PRIMARY KEY (sourceType, sourceId)
+    );
+    -- "which sources are in this project" — the only per-project read there is.
+    CREATE INDEX IF NOT EXISTS idx_project_sources_project
+      ON project_sources (projectId, sourceType);
+  `);
+}
+
 /** Ordered migrations. Each entry moves the database from version-1 to its own. */
 const MIGRATIONS: { version: number; up: (d: DatabaseSync) => void }[] = [
   { version: 1, up: migration1 },
@@ -423,6 +473,7 @@ const MIGRATIONS: { version: number; up: (d: DatabaseSync) => void }[] = [
   { version: 3, up: migration3 },
   { version: 4, up: migration4 },
   { version: 5, up: migration5 },
+  { version: 6, up: migration6 },
 ];
 
 function getUserVersion(d: DatabaseSync): number {
