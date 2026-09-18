@@ -10,6 +10,10 @@ import type {
 } from "@/lib/settings/types";
 import { API_METHODS } from "@/lib/settings/types";
 import { DEVICE_TYPES, type DeviceType } from "@/lib/devices/model";
+import {
+  NOTIFICATION_MIN_SEVERITIES,
+  type NotificationSettings,
+} from "@/lib/notifications/model";
 
 /**
  * Settings page. Configures what DevPulse monitors and how it alerts. All
@@ -29,6 +33,7 @@ type Bundle = {
     system: { cpuWarnPct: number; cpuCritPct: number; memWarnPct: number; memCritPct: number };
     ai: { tokenBudget24h: number | null; costBudget24hUsd: number | null };
   };
+  notifications: NotificationSettings;
   integrations: { github: boolean; deepseek: boolean };
 };
 
@@ -147,6 +152,13 @@ export default function SettingsPage() {
 
       <Section title="AI budgets" subtitle="Optional 24h budgets. Disabled means no limit is enforced.">
         <AiBudgets ai={bundle.alerts.ai} onChanged={reload} setNotice={setNotice} />
+      </Section>
+
+      <Section
+        title="Notifications"
+        subtitle="Local alert notifications. No email, SMS or external service is ever sent."
+      >
+        <NotificationPrefs prefs={bundle.notifications} onChanged={reload} setNotice={setNotice} />
       </Section>
 
       <Section title="Integrations" subtitle="Credentials are configured via .env.local / environment variables — never stored or edited here.">
@@ -901,6 +913,80 @@ function SystemThresholds({
           Sustained above a threshold across the lookback window triggers a warning (critical above the critical value).
         </p>
         <button type="button" onClick={save} className={btnPrimary}>Save thresholds</button>
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ *
+ * Notifications
+ * ------------------------------------------------------------------ */
+
+/**
+ * Three scalars, no matrix. There are deliberately no per-rule or per-project
+ * notification settings in V1, and no destination other than this machine.
+ */
+function NotificationPrefs({
+  prefs,
+  onChanged,
+  setNotice,
+}: {
+  prefs: NotificationSettings;
+  onChanged: () => void;
+  setNotice: (n: Notice) => void;
+}) {
+  const [enabled, setEnabled] = useState(prefs.enabled);
+  const [desktop, setDesktop] = useState(prefs.desktop);
+  const [minSeverity, setMinSeverity] = useState(prefs.minSeverity);
+
+  const save = async () => {
+    const res = await api("notifications", "PUT", {
+      notifications: { enabled, desktop, minSeverity },
+    });
+    if (res.ok) {
+      setNotice({ kind: "success", text: "Notification settings saved." });
+      onChanged();
+    } else {
+      setNotice({ kind: "error", text: res.error ?? "Request failed." });
+    }
+  };
+
+  return (
+    <div className="space-y-3">
+      <Toggle
+        checked={enabled}
+        onChange={setEnabled}
+        label="Record notifications for alert transitions"
+      />
+      <Toggle
+        checked={desktop}
+        onChange={setDesktop}
+        label="Show a Windows desktop notification for high-severity alerts"
+      />
+      <div className="max-w-xs">
+        <label className={labelCls}>Minimum severity</label>
+        <select
+          className={inputCls}
+          value={minSeverity}
+          onChange={(e) => setMinSeverity(e.target.value as NotificationSettings["minSeverity"])}
+        >
+          {NOTIFICATION_MIN_SEVERITIES.map((s) => (
+            <option key={s} value={s}>
+              {s}
+            </option>
+          ))}
+        </select>
+      </div>
+      <div className="flex items-start justify-between gap-4">
+        <p className="text-xs text-zinc-400 dark:text-zinc-500">
+          Alerts below the minimum severity never produce a notification, so informational events
+          stay silent. Desktop toasts are Windows-local, shown only for alerts that open or worsen,
+          and are best-effort — a toast that fails to appear never affects monitoring. No email,
+          SMS or external service is involved.
+        </p>
+        <button type="button" onClick={save} className={btnPrimary}>
+          Save notifications
+        </button>
       </div>
     </div>
   );

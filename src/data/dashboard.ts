@@ -19,6 +19,7 @@ export const navSections: NavItem[] = [
   { label: "Storage", href: "/storage" },
   { label: "Security", href: "/security" },
   { label: "Alerts", href: "/alerts" },
+  { label: "Notifications", href: "/notifications" },
   { label: "History", href: "/history" },
   { label: "Settings", href: "/settings" },
 ];

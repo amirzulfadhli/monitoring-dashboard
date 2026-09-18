@@ -13,6 +13,7 @@
  *   4 = device reachability monitoring (monitored_devices + device_checks).
  *   5 = local disk/storage monitoring (storage_volume_checks).
  *   6 = project grouping (projects + project_sources).
+ *   7 = notifications (notifications).
  *
  * Every migration must be additive and idempotent: DevPulse never drops tables,
  * deletes rows, or recreates the database. A database whose version is *newer*
@@ -22,7 +23,7 @@
 import type { DatabaseSync } from "node:sqlite";
 
 /** Current schema version. Bump when adding a migration below. */
-export const SCHEMA_VERSION = 6;
+export const SCHEMA_VERSION = 7;
 
 /** Add a column to a table only if it does not exist yet (idempotent, additive). */
 function addColumn(
@@ -466,6 +467,43 @@ function migration6(d: DatabaseSync): void {
   `);
 }
 
+/**
+ * Version 7 — the notification inbox. Additive only: one new table and its
+ * index, no existing table, index or row is touched.
+ *
+ * A notification is *derived* state: it records that an existing alert changed
+ * (opened, escalated, resolved) and copies only the alert's own short,
+ * deterministic title and message. There is deliberately no foreign key to
+ * `alerts` — the referenced row is a lifecycle record that may later resolve and
+ * be pruned; the notification is a historical event in its own right and must
+ * survive that. Nothing here is a second monitoring signal, and no collector
+ * result, request body, command output or file path is ever written.
+ *
+ * `id` is deterministic (`<fingerprint>:<transition>:<instant>`) and is the
+ * primary key, so a re-evaluation that re-derives the same transition is absorbed
+ * by `INSERT OR IGNORE` instead of duplicating.
+ */
+function migration7(d: DatabaseSync): void {
+  d.exec(`
+    CREATE TABLE IF NOT EXISTS notifications (
+      id TEXT PRIMARY KEY,          -- deterministic: fingerprint:transition:instant
+      fingerprint TEXT NOT NULL,    -- the alert this notification refers to
+      transition TEXT NOT NULL,     -- opened | escalated | resolved
+      source TEXT NOT NULL,         -- the alert's source (system, websites, ...)
+      severity TEXT NOT NULL,       -- info | warning | critical
+      title TEXT NOT NULL,
+      message TEXT NOT NULL,
+      projectName TEXT,             -- project context at the time; null when ungrouped
+      createdAt INTEGER NOT NULL,   -- epoch ms
+      readAt INTEGER                -- epoch ms; null while unread
+    );
+    -- The inbox is a bounded "most recent first" read and the unread count is a
+    -- filtered count, so one index over the ordering column serves both.
+    CREATE INDEX IF NOT EXISTS idx_notifications_created
+      ON notifications(createdAt);
+  `);
+}
+
 /** Ordered migrations. Each entry moves the database from version-1 to its own. */
 const MIGRATIONS: { version: number; up: (d: DatabaseSync) => void }[] = [
   { version: 1, up: migration1 },
@@ -474,6 +512,7 @@ const MIGRATIONS: { version: number; up: (d: DatabaseSync) => void }[] = [
   { version: 4, up: migration4 },
   { version: 5, up: migration5 },
   { version: 6, up: migration6 },
+  { version: 7, up: migration7 },
 ];
 
 function getUserVersion(d: DatabaseSync): number {

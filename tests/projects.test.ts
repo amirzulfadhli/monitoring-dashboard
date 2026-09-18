@@ -111,9 +111,12 @@ function project(name: string, description: string | null = null): string {
 
 test("schema: projects migration is additive and versioned", (t) => {
   withTempDb(t, (db) => {
-    assert.equal(SCHEMA_VERSION, 6);
+    // The project migration is v6; the schema has since moved on (v7 adds the
+    // notification inbox), so the pin is on this migration having run, not on
+    // the build's current version number.
+    assert.ok(SCHEMA_VERSION >= 6);
     const version = db.prepare(`PRAGMA user_version`).get() as { user_version: number };
-    assert.equal(version.user_version, 6);
+    assert.equal(version.user_version, SCHEMA_VERSION);
 
     const tables = (
       db

@@ -9,7 +9,8 @@ import {
 /**
  * Opportunistic retention pruning shared across the persisted monitoring tables
  * (telemetry `history`, `website_checks`, `api_checks`, `device_checks`,
- * `storage_volume_checks`, `ai_usage`, `github_snapshots`).
+ * `storage_volume_checks`, `ai_usage`, `github_snapshots`) and the derived
+ * `notifications` inbox.
  *
  * Design mirrors the storage modules it cleans: its own DatabaseSync against the
  * same on-disk file, lazily opened, and every failure degrades to a no-op so a
@@ -26,15 +27,27 @@ import {
  * dedup authority, not the rows).
  */
 
-/** The tables pruned by retention and the retention key each maps to. */
-const PRUNE_TARGETS: { table: string; retentionMs: number }[] = [
-  { table: "history", retentionMs: RETENTION_MS.telemetry },
-  { table: "website_checks", retentionMs: RETENTION_MS.websiteChecks },
-  { table: "api_checks", retentionMs: RETENTION_MS.apiChecks },
-  { table: "device_checks", retentionMs: RETENTION_MS.deviceChecks },
-  { table: "storage_volume_checks", retentionMs: RETENTION_MS.storageChecks },
-  { table: "ai_usage", retentionMs: RETENTION_MS.aiUsage },
-  { table: "github_snapshots", retentionMs: RETENTION_MS.githubSnapshots },
+/**
+ * The tables pruned by retention, the retention key each maps to, and the epoch
+ * column the cutoff is compared against. Every check/snapshot table keys on
+ * `ts`; the notification inbox keys on `createdAt`, so the column is named
+ * explicitly rather than assumed.
+ */
+const PRUNE_TARGETS: { table: string; column: string; retentionMs: number }[] = [
+  { table: "history", column: "ts", retentionMs: RETENTION_MS.telemetry },
+  { table: "website_checks", column: "ts", retentionMs: RETENTION_MS.websiteChecks },
+  { table: "api_checks", column: "ts", retentionMs: RETENTION_MS.apiChecks },
+  { table: "device_checks", column: "ts", retentionMs: RETENTION_MS.deviceChecks },
+  {
+    table: "storage_volume_checks",
+    column: "ts",
+    retentionMs: RETENTION_MS.storageChecks,
+  },
+  { table: "ai_usage", column: "ts", retentionMs: RETENTION_MS.aiUsage },
+  { table: "github_snapshots", column: "ts", retentionMs: RETENTION_MS.githubSnapshots },
+  // Bounds the notification inbox so it cannot grow without limit. Like the
+  // others, this only ever deletes by its own timestamp column.
+  { table: "notifications", column: "createdAt", retentionMs: RETENTION_MS.notifications },
 ];
 
 function readLastPruneAt(d: DatabaseSync): number | null {
@@ -62,16 +75,29 @@ function writeLastPruneAt(d: DatabaseSync, now: number): void {
 /** Prune every table to its retention window. Best-effort per table. Returns true if any row was deleted. */
 function pruneAll(d: DatabaseSync, now: number): boolean {
   let any = false;
-  for (const { table, retentionMs } of PRUNE_TARGETS) {
+  for (const { table, column, retentionMs } of PRUNE_TARGETS) {
     const cutoff = now - retentionMs;
     try {
-      const r = d.prepare(`DELETE FROM ${table} WHERE ts < ?`).run(cutoff);
+      const r = d.prepare(`DELETE FROM ${table} WHERE ${column} < ?`).run(cutoff);
       if (Number(r.changes) > 0) any = true;
     } catch {
       // A failed DELETE (e.g. table not yet created) must not stop the rest.
     }
   }
   return any;
+}
+
+/**
+ * Prune every table now, ignoring the interval guard. This is the same body
+ * `maybePruneExpired` runs; it is exposed so verification and tests can exercise
+ * retention deterministically without waiting out (or resetting) the throttle,
+ * and so a caller that has already decided a prune is due is not throttled
+ * twice. Never throws.
+ */
+export function pruneExpired(now: number = Date.now()): boolean {
+  const d = getDb();
+  if (!d) return false;
+  return pruneAll(d, now);
 }
 
 // In-memory throttle: after a decision, skip with a plain compare until allowed

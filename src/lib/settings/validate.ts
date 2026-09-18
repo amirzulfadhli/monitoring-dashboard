@@ -17,6 +17,7 @@ import { isIP } from "node:net";
 
 import { DEVICE_TYPES } from "@/lib/devices/model";
 import { hostError, normalizeHost } from "@/lib/devices/host";
+import { NOTIFICATION_MIN_SEVERITIES } from "@/lib/notifications/model";
 
 import { API_METHODS } from "./types";
 
@@ -288,6 +289,25 @@ export function validateAlertInput(input: {
     if (c != null && (!Number.isFinite(c) || c <= 0)) {
       return "Cost budget must be a positive number.";
     }
+  }
+  return null;
+}
+
+/**
+ * Notification preferences. Deliberately tiny: three scalars, no per-rule or
+ * per-project matrix. An unknown minimum severity is refused rather than
+ * silently coerced, so the persisted value can never drift from the two the UI
+ * offers — and "info" is not one of them, which is what keeps informational
+ * events out of notifications by construction.
+ */
+export function validateNotificationSettings(
+  input: { enabled: boolean; desktop: boolean; minSeverity: string },
+): string | null {
+  if (typeof input.enabled !== "boolean" || typeof input.desktop !== "boolean") {
+    return "Notification settings must be booleans.";
+  }
+  if (!(NOTIFICATION_MIN_SEVERITIES as readonly string[]).includes(input.minSeverity)) {
+    return "Minimum severity must be 'warning' or 'critical'.";
   }
   return null;
 }

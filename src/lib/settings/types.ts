@@ -10,6 +10,7 @@
  */
 
 import type { DeviceType } from "@/lib/devices/model";
+import type { NotificationSettings } from "@/lib/notifications/model";
 
 export type MonitoredWebsite = {
   id: string;
@@ -94,5 +95,6 @@ export type SettingsBundle = {
   repositories: MonitoredRepository[];
   devices: MonitoredDevice[];
   alerts: AlertSettings;
+  notifications: NotificationSettings;
   integrations: { github: boolean; deepseek: boolean };
 };

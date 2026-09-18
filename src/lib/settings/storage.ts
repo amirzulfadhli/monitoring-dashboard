@@ -18,6 +18,11 @@ import { monitoredSites } from "@/data/monitored-sites";
 import { monitoredRepos } from "@/data/monitored-repos";
 import { alertConfig } from "@/lib/alerts/config";
 import { deviceTypeOf, type DeviceType } from "@/lib/devices/model";
+import {
+  NOTIFICATION_MIN_SEVERITIES,
+  type NotificationMinSeverity,
+  type NotificationSettings,
+} from "@/lib/notifications/model";
 
 import type {
   AiAlertSettings,
@@ -733,6 +738,52 @@ export function writeAiBudgets(a: AiAlertSettings): boolean {
          ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
       )
       .run(JSON.stringify(a));
+    return Number(r.changes) >= 0;
+  } catch {
+    return false;
+  }
+}
+
+/* ------------------------------------------------------------------ *
+ * Notification preferences
+ *
+ * Same `app_settings` key/value area as the alert thresholds — no new store, no
+ * new table. Only three scalars live here: there is no per-rule or per-project
+ * notification configuration in V1.
+ * ------------------------------------------------------------------ */
+
+/**
+ * Persisted notification preferences, or null when unset / DB unavailable. A
+ * partially-written or hand-edited value degrades to null (the conservative
+ * defaults) rather than being trusted field by field.
+ */
+export function readNotificationSettings(): NotificationSettings | null {
+  const v = readJsonSetting("notifications.prefs");
+  if (!v || typeof v !== "object") return null;
+  const n = v as Partial<NotificationSettings>;
+  if (typeof n.enabled !== "boolean" || typeof n.desktop !== "boolean") return null;
+  if (
+    !(NOTIFICATION_MIN_SEVERITIES as readonly string[]).includes(n.minSeverity as string)
+  ) {
+    return null;
+  }
+  return {
+    enabled: n.enabled,
+    desktop: n.desktop,
+    minSeverity: n.minSeverity as NotificationMinSeverity,
+  };
+}
+
+export function writeNotificationSettings(s: NotificationSettings): boolean {
+  const d = getDb();
+  if (!d) return false;
+  try {
+    const r = d
+      .prepare(
+        `INSERT INTO app_settings (key, value) VALUES ('notifications.prefs', ?)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+      )
+      .run(JSON.stringify(s));
     return Number(r.changes) >= 0;
   } catch {
     return false;

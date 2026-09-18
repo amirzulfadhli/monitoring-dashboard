@@ -12,6 +12,8 @@
  *   - AI usage:               90d  (transcript cursor, not rows, guarantees
  *                                   Claude Code idempotency — see index.ts)
  *   - GitHub snapshots:       90d
+ *   - notifications:          30d  (a derived inbox — bounded, not a record of
+ *                                   fact; the alerts it was derived from remain)
  */
 
 const DAY_MS = 86_400_000;
@@ -26,6 +28,10 @@ export const RETENTION_MS = {
   storageChecks: 30 * DAY_MS,
   aiUsage: 90 * DAY_MS,
   githubSnapshots: 90 * DAY_MS,
+  // The inbox is a convenience view over alert transitions, so it is bounded on
+  // the same conservative 30d horizon as the rest of the operational history.
+  // Pruning it removes notifications only — never the alert they describe.
+  notifications: 30 * DAY_MS,
 } as const;
 
 /**

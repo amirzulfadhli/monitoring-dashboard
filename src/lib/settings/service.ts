@@ -13,6 +13,10 @@ import type { ApiTarget } from "@/lib/monitoring/apis";
 
 import { deviceTypeOf, type MonitorableDevice } from "@/lib/devices/model";
 import { disassociateSource } from "@/lib/projects/storage";
+import {
+  DEFAULT_NOTIFICATION_SETTINGS,
+  type NotificationSettings,
+} from "@/lib/notifications/model";
 
 import {
   deleteApi,
@@ -29,12 +33,14 @@ import {
   listRepositories,
   listWebsites,
   readAiBudgets,
+  readNotificationSettings,
   readSystemThresholds,
   updateApi,
   updateDevice,
   updateRepository,
   updateWebsite,
   writeAiBudgets,
+  writeNotificationSettings,
   writeSystemThresholds,
 } from "./storage";
 import type {
@@ -53,6 +59,7 @@ import {
   validateAlertInput,
   validateApiFields,
   validateDeviceFields,
+  validateNotificationSettings,
   validateOwnerRepo,
   validateWebsiteFields,
 } from "./validate";
@@ -171,6 +178,17 @@ export function getAiSettings(): AiAlertSettings {
   );
 }
 
+/**
+ * Effective notification preferences. Never null: when nothing is persisted (or
+ * the settings DB is unavailable) the conservative defaults apply — notifications
+ * on, desktop toasts off, critical only. A missing setting must never mean
+ * "notify about everything".
+ */
+export function getNotificationSettings(): NotificationSettings {
+  ensureSeeded();
+  return readNotificationSettings() ?? DEFAULT_NOTIFICATION_SETTINGS;
+}
+
 /* ------------------------------------------------------------------ *
  * Settings API helpers
  * ------------------------------------------------------------------ */
@@ -186,6 +204,7 @@ export function getSettingsBundle(): SettingsBundle {
     repositories: listRepositories() ?? [],
     devices: listDevices() ?? [],
     alerts: { system: getSystemSettings(), ai: getAiSettings() },
+    notifications: getNotificationSettings(),
     integrations: {
       github: configured("GITHUB_TOKEN"),
       deepseek: configured("DEEPSEEK_API_KEY"),
@@ -473,4 +492,18 @@ export function saveAlertSettings(
 /** Shape of the persisted alerts the API exposes back after a save. */
 export function readAlertSettings(): AlertSettings {
   return { system: getSystemSettings(), ai: getAiSettings() };
+}
+
+/**
+ * Persist notification preferences. The whole triplet is replaced at once (they
+ * are three scalars, not a matrix), and nothing here can widen what is notified
+ * beyond the two supported minimum severities.
+ */
+export function saveNotificationSettings(next: NotificationSettings): MutateResult {
+  const err = validateNotificationSettings(next);
+  if (err) return fail(err);
+  if (!writeNotificationSettings(next)) {
+    return fail("Could not save notification settings.");
+  }
+  return { ok: true };
 }
