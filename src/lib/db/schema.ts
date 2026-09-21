@@ -14,6 +14,7 @@
  *   5 = local disk/storage monitoring (storage_volume_checks).
  *   6 = project grouping (projects + project_sources).
  *   7 = notifications (notifications).
+ *   8 = daily operational briefs (daily_briefs).
  *
  * Every migration must be additive and idempotent: DevPulse never drops tables,
  * deletes rows, or recreates the database. A database whose version is *newer*
@@ -23,7 +24,7 @@
 import type { DatabaseSync } from "node:sqlite";
 
 /** Current schema version. Bump when adding a migration below. */
-export const SCHEMA_VERSION = 7;
+export const SCHEMA_VERSION = 8;
 
 /** Add a column to a table only if it does not exist yet (idempotent, additive). */
 function addColumn(
@@ -504,6 +505,45 @@ function migration7(d: DatabaseSync): void {
   `);
 }
 
+/**
+ * Version 8 — the daily operational brief. Additive only: one new table, no
+ * existing table, index or row is touched.
+ *
+ * A brief is *derived* state: it summarizes evidence DevPulse already persisted
+ * for one 24-hour operational period and owns no monitoring of its own. There is
+ * deliberately no foreign key and no reference into any check/snapshot table —
+ * the evidence it cites is stored as its own bounded JSON copy, because the rows
+ * it was drawn from may later be pruned while the brief remains a record of what
+ * was summarized.
+ *
+ * `periodStart` is the primary key: one brief per operational period, so
+ * regenerating the same period replaces that row instead of accumulating
+ * duplicates. The validated structured brief is stored field-by-field (not as
+ * one opaque blob) and the full DeepSeek prompt is never stored.
+ */
+function migration8(d: DatabaseSync): void {
+  d.exec(`
+    CREATE TABLE IF NOT EXISTS daily_briefs (
+      periodStart INTEGER PRIMARY KEY,   -- epoch ms; local start of the period
+      periodEnd INTEGER NOT NULL,        -- epoch ms; periodStart + 24h
+      generatedAt INTEGER NOT NULL,      -- epoch ms the brief was produced
+      windowHours INTEGER NOT NULL,      -- the period length the brief covers
+      summary TEXT NOT NULL,
+      highlights TEXT NOT NULL,          -- JSON array of string
+      problems TEXT NOT NULL,            -- JSON array of string
+      recoveries TEXT NOT NULL,          -- JSON array of string
+      watchNext TEXT NOT NULL,           -- JSON array of string
+      insufficientEvidence INTEGER NOT NULL,  -- 1 when the model could not ground
+      evidence TEXT NOT NULL,            -- JSON array of the bounded evidence supplied
+      citedEvidenceIds TEXT NOT NULL,    -- JSON array of the ids the model cited
+      evidenceCount INTEGER NOT NULL,
+      preSummary TEXT,                   -- JSON deterministic 24h pre-summary
+      model TEXT,
+      usage TEXT                          -- JSON {inputTokens,outputTokens,estimatedCostUsd}
+    );
+  `);
+}
+
 /** Ordered migrations. Each entry moves the database from version-1 to its own. */
 const MIGRATIONS: { version: number; up: (d: DatabaseSync) => void }[] = [
   { version: 1, up: migration1 },
@@ -513,6 +553,7 @@ const MIGRATIONS: { version: number; up: (d: DatabaseSync) => void }[] = [
   { version: 5, up: migration5 },
   { version: 6, up: migration6 },
   { version: 7, up: migration7 },
+  { version: 8, up: migration8 },
 ];
 
 function getUserVersion(d: DatabaseSync): number {

@@ -68,8 +68,12 @@ const KIND_RANK: Record<AskEvidenceKind, number> = {
 
 const SEV_RANK: Record<string, number> = { critical: 3, warning: 2, info: 1 };
 
-/** Raw, pre-id evidence candidate. Internal to this module. */
-type Candidate = {
+/**
+ * Raw, pre-id evidence candidate. Exported so another bounded selector (the
+ * daily brief, lib/brief/evidence) can reuse the ranking and text-budget rules
+ * below rather than growing a second, drifting copy of them.
+ */
+export type Candidate = {
   kind: AskEvidenceKind;
   source: string;
   ts: number | null;
@@ -225,10 +229,14 @@ function timelineCandidates(
  * then evidence kind, then recency, with a per-source cap so one chatty source
  * cannot fill the whole prompt. Pure and deterministic — equal inputs always
  * produce the same selection. The input is not mutated.
+ *
+ * `max` and `perSourceCap` default to Ask DevPulse's own bounds; another caller
+ * with a different budget passes its own rather than editing these.
  */
 export function selectEvidence(
   candidates: readonly Candidate[],
   max: number = ASK_MAX_EVIDENCE,
+  perSourceCap: number = ASK_MAX_PER_SOURCE,
 ): Candidate[] {
   if (max <= 0) return [];
   const ranked = [...candidates].sort((a, b) => {
@@ -244,7 +252,7 @@ export function selectEvidence(
   for (const c of ranked) {
     if (kept.length >= max) break;
     const n = perSource.get(c.source) ?? 0;
-    if (n >= ASK_MAX_PER_SOURCE) continue;
+    if (n >= perSourceCap) continue;
     perSource.set(c.source, n + 1);
     kept.push(c);
   }
@@ -257,17 +265,29 @@ function trimTo(s: string, max: number): string {
   return t.length > max ? `${t.slice(0, max - 1).trimEnd()}…` : t;
 }
 
+/** Per-item and total text caps; omitted fields fall back to Ask's own bounds. */
+export type EvidenceTextLimits = {
+  maxTitleLen?: number;
+  maxDetailLen?: number;
+  maxChars?: number;
+};
+
 /**
  * Assign request-local ids and enforce the text budget. An item that would
  * exceed the remaining character budget ends the list rather than being sent
  * truncated — the model only ever sees whole evidence items.
  */
-export function toEvidenceItems(selected: readonly Candidate[]): AskEvidence[] {
+export function toEvidenceItems(
+  selected: readonly Candidate[],
+  limits: EvidenceTextLimits = {},
+): AskEvidence[] {
+  const maxTitleLen = limits.maxTitleLen ?? ASK_MAX_TITLE_LEN;
+  const maxDetailLen = limits.maxDetailLen ?? ASK_MAX_DETAIL_LEN;
   const items: AskEvidence[] = [];
-  let budget = ASK_MAX_EVIDENCE_CHARS;
+  let budget = limits.maxChars ?? ASK_MAX_EVIDENCE_CHARS;
   for (const c of selected) {
-    const title = trimTo(c.title, ASK_MAX_TITLE_LEN);
-    const detail = trimTo(c.detail, ASK_MAX_DETAIL_LEN);
+    const title = trimTo(c.title, maxTitleLen);
+    const detail = trimTo(c.detail, maxDetailLen);
     const cost = title.length + detail.length;
     if (cost > budget) break;
     budget -= cost;
