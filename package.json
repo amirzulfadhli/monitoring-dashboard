@@ -7,7 +7,17 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "node --import tsx --test \"tests/*.test.ts\""
+    "test": "node --import tsx --test \"tests/*.test.ts\"",
+    "runtime": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/devpulse-runtime.ps1",
+    "runtime:check": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/devpulse-runtime.ps1 -Action Check",
+    "runtime:status": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/devpulse-runtime.ps1 -Action Status",
+    "runtime:stop": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/devpulse-runtime.ps1 -Action Stop",
+    "autostart:install": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/devpulse-autostart.ps1 -Action Install",
+    "autostart:status": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/devpulse-autostart.ps1 -Action Status",
+    "autostart:remove": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/devpulse-autostart.ps1 -Action Remove"
+  },
+  "engines": {
+    "node": ">=20.9"
   },
   "dependencies": {
     "next": "16.3.4",
