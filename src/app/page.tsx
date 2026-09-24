@@ -1,13 +1,16 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import Link from "next/link";
 import { useLiveTelemetry } from "@/lib/use-live-telemetry";
 import { useMonitoringStatus } from "@/lib/use-monitoring-status";
+import { useDashboardLayout } from "@/lib/use-dashboard-layout";
+import { visibleSectionIds, type DashboardSectionId } from "@/lib/dashboard/model";
 import { IntelligencePanel } from "@/components/intelligence-panel";
 import { CollectorHealth } from "@/components/collector-health";
 import { ProjectsSummary } from "@/components/projects-summary";
 import {
+  EmptyState,
   Panel,
   StatTile,
   StatusBadge,
@@ -94,15 +97,83 @@ function DetailPanel({ title, rows }: { title: string; rows: { label: string; va
   );
 }
 
+/**
+ * The "Last 24 hours" section. It owns its one history read, so hiding the
+ * section in Settings stops that request rather than fetching into a panel
+ * nobody sees.
+ */
+function HistoryPanel() {
+  const [summary, setSummary] = useState<HistorySummary | null>(null);
+  const [state, setState] = useState<"loading" | "idle" | "error">("loading");
+
+  // Fetched once on mount and independent of the live poll: if it fails, live
+  // metrics keep working.
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const res = await fetch("/api/telemetry/summary", { cache: "no-store" });
+        if (cancelled) return;
+        if (res.ok) {
+          setSummary((await res.json()) as HistorySummary);
+          setState("idle");
+        } else {
+          setState("error");
+        }
+      } catch {
+        if (!cancelled) setState("error");
+      }
+    };
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  return (
+    <Panel title="Last 24 hours">
+      {state === "loading" ? (
+        <p className={footnoteCls}>Loading history…</p>
+      ) : state === "error" ? (
+        <p className={footnoteCls}>
+          History is unavailable. Live metrics above continue to update.
+        </p>
+      ) : summary && summary.points === 0 ? (
+        <p className={footnoteCls}>
+          No history recorded in the last 24 hours. Telemetry is saved while DevPulse runs.
+        </p>
+      ) : summary ? (
+        <>
+          <div className="grid grid-cols-2 gap-4 lg:grid-cols-3">
+            <StatTile label="Avg CPU" value={fmtPct(summary.cpu.avg)} foot="24h average" />
+            <StatTile label="Peak CPU" value={fmtPct(summary.cpu.peak)} foot="24h peak" />
+            <StatTile label="Avg memory in use" value={fmtBytes(summary.usedMem.avg)} foot="24h average" />
+            <StatTile label="Peak memory in use" value={fmtBytes(summary.usedMem.peak)} foot="24h peak" />
+            <StatTile label="Peak receive rate" value={fmtRate(summary.rxRate)} foot="24h peak" />
+            <StatTile label="Peak transmit rate" value={fmtRate(summary.txRate)} foot="24h peak" />
+          </div>
+          {summary.points < LIMITED_POINTS && (
+            <p className={`mt-4 ${footnoteCls}`}>
+              Limited history — DevPulse has only been collecting for a short time ({summary.points}{" "}
+              {summary.points === 1 ? "sample" : "samples"}).
+            </p>
+          )}
+        </>
+      ) : null}
+    </Panel>
+  );
+}
+
 export default function OverviewPage() {
+  // Which sections to render, and in what order. Null only while the preference
+  // is being read — the section area is held back until then, so a hidden
+  // section is never mounted.
+  const layout = useDashboardLayout();
   const { snapshot, unavailable } = useLiveTelemetry({ refreshMs: REFRESH_MS });
   // Background scheduler state — tells us whether collection is still happening
   // (and how recently) independently of this tab's own polling.
   const monitoring = useMonitoringStatus();
   const freshness = monitoring?.freshness ?? null;
-
-  const [summary, setSummary] = useState<HistorySummary | null>(null);
-  const [summaryState, setSummaryState] = useState<"loading" | "idle" | "error">("loading");
 
   // Highest local volume utilization, for one compact line in the header.
   // Fetched on mount like the summary: the scheduler already collects storage
@@ -152,31 +223,6 @@ export default function OverviewPage() {
         // Non-fatal: the indicator simply stays hidden.
       }
     })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-
-  // 24h historical summary. Fetched once on mount and independent of the live
-  // poll: if it fails, live metrics above keep working.
-  useEffect(() => {
-    let cancelled = false;
-    const load = async () => {
-      try {
-        const res = await fetch("/api/telemetry/summary", { cache: "no-store" });
-        if (cancelled) return;
-        if (res.ok) {
-          setSummary((await res.json()) as HistorySummary);
-          setSummaryState("idle");
-        } else if (!cancelled) {
-          setSummaryState("error");
-        }
-      } catch {
-        if (!cancelled) setSummaryState("error");
-      }
-    };
-    load();
     return () => {
       cancelled = true;
     };
@@ -243,9 +289,43 @@ export default function OverviewPage() {
       ? `${fmtPct(memPct)} of ${fmtBytes(totalMem)} in use`
       : "no data";
 
+  /**
+   * The one place a stored section id becomes a component. A preference only
+   * ever supplies an id from the registry, and an id that is not a key here
+   * renders nothing — nothing stored is ever treated as a component name.
+   */
+  const eachSection: Record<DashboardSectionId, React.ReactNode> = {
+    metrics: (
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <StatTile label="CPU usage" value={fmtPct(cpuPct)} tone={cpuTone} foot={sys ? `${sys.cores} logical cores` : undefined} />
+        <StatTile label="Memory usage" value={fmtBytes(usedMem)} tone={memPctTone} foot={memFoot} />
+        <StatTile label="Receive rate" value={fmtRate(net?.rxRate ?? null)} />
+        <StatTile label="Transmit rate" value={fmtRate(net?.txRate ?? null)} />
+      </div>
+    ),
+    details: (
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+        <DetailPanel title="System" rows={sysRows.length ? sysRows : [{ label: "System info", value: "Unavailable" }]} />
+        <DetailPanel title="Network" rows={netRows.length ? netRows : [{ label: "Network info", value: "Unavailable" }]} />
+      </div>
+    ),
+    // Background collector health: distinct from what those collectors
+    // monitor — a down website is a successful websites run.
+    collectors: monitoring ? <CollectorHealth jobs={monitoring.jobs} /> : null,
+    // Project grouping, when any project exists. Derived from stored source
+    // state only — opening the Overview checks nothing.
+    projects: <ProjectsSummary />,
+    history: <HistoryPanel />,
+    // Intelligence (DeepSeek operational brief — only runs on demand)
+    intelligence: <IntelligencePanel />,
+  };
+
+  const visible = layout ? visibleSectionIds(layout) : [];
+
   return (
     <div className={pageCls}>
-      {/* Header / status */}
+      {/* Header / status. Always rendered, and never customizable: the Overview
+          always says which machine it is showing and whether it is healthy. */}
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <div className="flex flex-wrap items-center gap-2">
@@ -316,62 +396,31 @@ export default function OverviewPage() {
         )}
       </div>
 
-      {/* Primary metrics */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <StatTile label="CPU usage" value={fmtPct(cpuPct)} tone={cpuTone} foot={sys ? `${sys.cores} logical cores` : undefined} />
-        <StatTile label="Memory usage" value={fmtBytes(usedMem)} tone={memPctTone} foot={memFoot} />
-        <StatTile label="Receive rate" value={fmtRate(net?.rxRate ?? null)} />
-        <StatTile label="Transmit rate" value={fmtRate(net?.txRate ?? null)} />
-      </div>
-
-      {/* System + network detail */}
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-        <DetailPanel title="System" rows={sysRows.length ? sysRows : [{ label: "System info", value: "Unavailable" }]} />
-        <DetailPanel title="Network" rows={netRows.length ? netRows : [{ label: "Network info", value: "Unavailable" }]} />
-      </div>
-
-      {/* Background collector health: distinct from what those collectors
-          monitor — a down website is a successful websites run. */}
-      {monitoring && <CollectorHealth jobs={monitoring.jobs} />}
-
-      {/* Project grouping, when any project exists. Derived from stored source
-          state only — opening the Overview checks nothing. */}
-      <ProjectsSummary />
-
-      {/* Last 24 hours */}
-      <Panel title="Last 24 hours">
-        {summaryState === "loading" ? (
-          <p className={footnoteCls}>Loading history…</p>
-        ) : summaryState === "error" ? (
-          <p className={footnoteCls}>
-            History is unavailable. Live metrics above continue to update.
-          </p>
-        ) : summary && summary.points === 0 ? (
-          <p className={footnoteCls}>
-            No history recorded in the last 24 hours. Telemetry is saved while DevPulse runs.
-          </p>
-        ) : summary ? (
-          <>
-            <div className="grid grid-cols-2 gap-4 lg:grid-cols-3">
-              <StatTile label="Avg CPU" value={fmtPct(summary.cpu.avg)} foot="24h average" />
-              <StatTile label="Peak CPU" value={fmtPct(summary.cpu.peak)} foot="24h peak" />
-              <StatTile label="Avg memory in use" value={fmtBytes(summary.usedMem.avg)} foot="24h average" />
-              <StatTile label="Peak memory in use" value={fmtBytes(summary.usedMem.peak)} foot="24h peak" />
-              <StatTile label="Peak receive rate" value={fmtRate(summary.rxRate)} foot="24h peak" />
-              <StatTile label="Peak transmit rate" value={fmtRate(summary.txRate)} foot="24h peak" />
-            </div>
-            {summary.points < LIMITED_POINTS && (
-              <p className={`mt-4 ${footnoteCls}`}>
-                Limited history — DevPulse has only been collecting for a short time ({summary.points}{" "}
-                {summary.points === 1 ? "sample" : "samples"}).
-              </p>
-            )}
-          </>
-        ) : null}
-      </Panel>
-
-      {/* Intelligence (DeepSeek operational brief — only runs on demand) */}
-      <IntelligencePanel />
+      {/*
+        Customizable sections, in the persisted order. Nothing renders until the
+        preference has been read, so a hidden section is never mounted (and so
+        never starts its own polling); an all-hidden layout says so plainly and
+        points at Settings rather than quietly putting sections back.
+      */}
+      {layout === null ? null : visible.length === 0 ? (
+        <EmptyState
+          title="No sections are shown"
+          message={
+            <>
+              Every Overview section is hidden.{" "}
+              <Link
+                href="/settings"
+                className="text-zinc-600 underline underline-offset-2 hover:text-zinc-900 dark:text-zinc-300 dark:hover:text-zinc-50"
+              >
+                Choose sections in Settings
+              </Link>{" "}
+              to show them again.
+            </>
+          }
+        />
+      ) : (
+        visible.map((id) => <Fragment key={id}>{eachSection[id]}</Fragment>)
+      )}
     </div>
   );
 }

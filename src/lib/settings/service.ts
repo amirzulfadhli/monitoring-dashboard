@@ -12,6 +12,11 @@ import { alertConfig } from "@/lib/alerts/config";
 import type { ApiTarget } from "@/lib/monitoring/apis";
 
 import { deviceTypeOf, type MonitorableDevice } from "@/lib/devices/model";
+import {
+  normalizeDashboardLayout,
+  validateDashboardLayout,
+  type DashboardLayout,
+} from "@/lib/dashboard/model";
 import { disassociateSource } from "@/lib/projects/storage";
 import {
   DEFAULT_NOTIFICATION_SETTINGS,
@@ -33,6 +38,7 @@ import {
   listRepositories,
   listWebsites,
   readAiBudgets,
+  readDashboardLayoutValue,
   readNotificationSettings,
   readSystemThresholds,
   updateApi,
@@ -40,6 +46,7 @@ import {
   updateRepository,
   updateWebsite,
   writeAiBudgets,
+  writeDashboardLayoutValue,
   writeNotificationSettings,
   writeSystemThresholds,
 } from "./storage";
@@ -189,6 +196,16 @@ export function getNotificationSettings(): NotificationSettings {
   return readNotificationSettings() ?? DEFAULT_NOTIFICATION_SETTINGS;
 }
 
+/**
+ * Effective Overview layout. Always renders something: a missing, malformed,
+ * stale or hand-edited stored value normalizes to the default dashboard rather
+ * than to an empty page. Customization can never make the Overview unusable.
+ */
+export function getDashboardLayout(): DashboardLayout {
+  ensureSeeded();
+  return normalizeDashboardLayout(readDashboardLayoutValue());
+}
+
 /* ------------------------------------------------------------------ *
  * Settings API helpers
  * ------------------------------------------------------------------ */
@@ -205,6 +222,7 @@ export function getSettingsBundle(): SettingsBundle {
     devices: listDevices() ?? [],
     alerts: { system: getSystemSettings(), ai: getAiSettings() },
     notifications: getNotificationSettings(),
+    dashboard: getDashboardLayout(),
     integrations: {
       github: configured("GITHUB_TOKEN"),
       deepseek: configured("DEEPSEEK_API_KEY"),
@@ -504,6 +522,24 @@ export function saveNotificationSettings(next: NotificationSettings): MutateResu
   if (err) return fail(err);
   if (!writeNotificationSettings(next)) {
     return fail("Could not save notification settings.");
+  }
+  return { ok: true };
+}
+
+/**
+ * Persist the Overview layout.
+ *
+ * Validated strictly and then normalized before storage, so what lands in
+ * `app_settings` is always a complete, ordered list of known section ids — a
+ * client can never smuggle an unknown id (let alone a component name, path or
+ * URL) into the value the Overview later reads.
+ */
+export function saveDashboardLayout(input: unknown): MutateResult {
+  const err = validateDashboardLayout(input);
+  if (err) return fail(err);
+  const layout = normalizeDashboardLayout(input);
+  if (!writeDashboardLayoutValue(layout)) {
+    return fail("Could not save the dashboard layout.");
   }
   return { ok: true };
 }

@@ -789,3 +789,34 @@ export function writeNotificationSettings(s: NotificationSettings): boolean {
     return false;
   }
 }
+
+/* ------------------------------------------------------------------ *
+ * Overview layout
+ *
+ * One more JSON value in the same `app_settings` area — no new table, so an
+ * install that never customizes the dashboard reads as "unset" and simply gets
+ * the default. The shape is deliberately not validated here: it is owned by
+ * lib/dashboard/model, which normalizes whatever comes back (including a
+ * hand-edited or stale value) into something safe to render.
+ * ------------------------------------------------------------------ */
+
+/** The stored Overview layout, or null when unset / DB unavailable. */
+export function readDashboardLayoutValue(): unknown {
+  return readJsonSetting("dashboard.layout");
+}
+
+export function writeDashboardLayoutValue(value: unknown): boolean {
+  const d = getDb();
+  if (!d) return false;
+  try {
+    const r = d
+      .prepare(
+        `INSERT INTO app_settings (key, value) VALUES ('dashboard.layout', ?)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+      )
+      .run(JSON.stringify(value));
+    return Number(r.changes) >= 0;
+  } catch {
+    return false;
+  }
+}

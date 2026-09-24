@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type {
   ApiMethod,
   MonitoredApi,
@@ -10,6 +10,15 @@ import type {
 } from "@/lib/settings/types";
 import { API_METHODS } from "@/lib/settings/types";
 import { DEVICE_TYPES, type DeviceType } from "@/lib/devices/model";
+import {
+  canMoveSection,
+  dashboardSectionMeta,
+  defaultDashboardLayout,
+  moveSection,
+  normalizeDashboardLayout,
+  setSectionVisible,
+  type DashboardLayout,
+} from "@/lib/dashboard/model";
 import {
   NOTIFICATION_MIN_SEVERITIES,
   type NotificationSettings,
@@ -22,6 +31,7 @@ import {
   StatusLabel,
   btnCls,
   btnPrimary,
+  btnSmall,
   footnoteCls,
   inputCls,
   labelCls,
@@ -47,6 +57,7 @@ type Bundle = {
     ai: { tokenBudget24h: number | null; costBudget24hUsd: number | null };
   };
   notifications: NotificationSettings;
+  dashboard: DashboardLayout;
   integrations: { github: boolean; deepseek: boolean };
 };
 
@@ -169,6 +180,13 @@ export default function SettingsPage() {
         hint="Local alert notifications. No email, SMS or external service is ever sent."
       >
         <NotificationPrefs prefs={bundle.notifications} onChanged={reload} setNotice={setNotice} />
+      </Panel>
+
+      <Panel
+        title="Overview"
+        hint="Which sections the Overview shows, and in what order."
+      >
+        <DashboardLayoutPanel layout={bundle.dashboard} setNotice={setNotice} />
       </Panel>
 
       <Panel
@@ -982,6 +1000,114 @@ function NotificationPrefs({
         </p>
         <button type="button" onClick={save} className={btnPrimary}>
           Save notifications
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ *
+ * Overview layout
+ *
+ * Six fixed sections, each either shown or hidden, in a persisted order. There
+ * is no free-form grid, no drag-and-drop and no saved variants: the only moves
+ * are up and down, and a section steps past its nearest *shown* neighbour
+ * because that is the only move with a visible effect.
+ *
+ * Every change is saved immediately — each control is one discrete action, like
+ * the enable toggles above.
+ * ------------------------------------------------------------------ */
+
+function DashboardLayoutPanel({
+  layout,
+  setNotice,
+}: {
+  layout: DashboardLayout;
+  setNotice: (n: Notice) => void;
+}) {
+  // Local, because every control saves on click and the PUT echoes the stored
+  // layout back: this panel is the only writer, so it holds the authoritative
+  // value rather than round-tripping the whole settings bundle per click.
+  const [current, setCurrent] = useState(layout);
+  const lastSaved = useRef(layout);
+
+  const apply = async (next: DashboardLayout) => {
+    setCurrent(next); // optimistic: a reorder should feel immediate
+    const res = (await jsonFetch("/api/settings/dashboard", "PUT", {
+      dashboard: next,
+    })) as { ok?: boolean; error?: string; data?: unknown };
+
+    if (res?.ok) {
+      const saved = normalizeDashboardLayout(res.data);
+      lastSaved.current = saved;
+      setCurrent(saved);
+      setNotice({ kind: "success", text: "Overview layout saved." });
+    } else {
+      setCurrent(lastSaved.current); // the save was refused: show what is stored
+      setNotice({ kind: "error", text: res?.error ?? "Request failed." });
+    }
+  };
+
+  const hiddenCount = current.sections.filter((s) => !s.visible).length;
+
+  return (
+    <div>
+      <div className="divide-y divide-zinc-100 dark:divide-zinc-900">
+        {current.sections.map((s) => {
+          const meta = dashboardSectionMeta(s.id);
+          const name = meta?.label ?? s.id;
+          return (
+            <div
+              key={s.id}
+              className="flex flex-wrap items-center justify-between gap-3 py-2.5"
+            >
+              <div className="min-w-0">
+                <p className="text-sm text-zinc-900 dark:text-zinc-50">{name}</p>
+                {meta && (
+                  <p className="text-[11px] text-zinc-400 dark:text-zinc-500">
+                    {meta.description}
+                  </p>
+                )}
+              </div>
+              <div className="flex shrink-0 items-center gap-4">
+                <Toggle
+                  checked={s.visible}
+                  onChange={(v) => apply(setSectionVisible(current, s.id, v))}
+                  label={`Show ${name}`}
+                />
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    className={btnSmall}
+                    disabled={!canMoveSection(current, s.id, -1)}
+                    onClick={() => apply(moveSection(current, s.id, -1))}
+                    aria-label={`Move ${name} up`}
+                  >
+                    Move up
+                  </button>
+                  <button
+                    type="button"
+                    className={btnSmall}
+                    disabled={!canMoveSection(current, s.id, 1)}
+                    onClick={() => apply(moveSection(current, s.id, 1))}
+                    aria-label={`Move ${name} down`}
+                  >
+                    Move down
+                  </button>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <div className="mt-3 flex flex-wrap items-start justify-between gap-4">
+        <p className={footnoteCls}>
+          The page header — machine, live status and freshness — always stays. Hiding every
+          section leaves the Overview with just that header and a link back here.
+          {hiddenCount > 0 && ` ${hiddenCount} of ${current.sections.length} sections hidden.`}
+        </p>
+        <button type="button" className={btnCls} onClick={() => apply(defaultDashboardLayout())}>
+          Reset to default
         </button>
       </div>
     </div>

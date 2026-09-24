@@ -10,6 +10,7 @@
  */
 
 import type { DeviceType } from "@/lib/devices/model";
+import type { DashboardLayout } from "@/lib/dashboard/model";
 import type { NotificationSettings } from "@/lib/notifications/model";
 
 export type MonitoredWebsite = {
@@ -96,5 +97,7 @@ export type SettingsBundle = {
   devices: MonitoredDevice[];
   alerts: AlertSettings;
   notifications: NotificationSettings;
+  /** Overview section visibility and order. Never contains anything but section ids. */
+  dashboard: DashboardLayout;
   integrations: { github: boolean; deepseek: boolean };
 };
