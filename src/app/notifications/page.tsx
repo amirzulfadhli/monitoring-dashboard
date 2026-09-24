@@ -2,31 +2,36 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import type { Severity } from "@/lib/alerts/model";
 import {
   TRANSITION_LABELS,
   type NotificationRecord,
   type NotificationSettings,
 } from "@/lib/notifications/model";
+import {
+  EmptyState,
+  PageHeader,
+  StatusDot,
+  StatusLabel,
+  btnCls,
+  btnSmall,
+  cellMutedCls,
+  footnoteCls,
+  metaCls,
+  mutedCls,
+  pageCls,
+  severityTone,
+  toneText,
+  type Tone,
+} from "@/components/ui";
 
 // The inbox is a storage read with no evaluation behind it, so a slow poll is
 // plenty — this only has to notice what the scheduler recorded meanwhile.
 const REFRESH_MS = 60_000;
 
-const sevDot: Record<Severity, string> = {
-  critical: "bg-red-500",
-  warning: "bg-amber-500",
-  info: "bg-sky-500",
-};
-const sevText: Record<Severity, string> = {
-  critical: "text-red-600 dark:text-red-400",
-  warning: "text-amber-600 dark:text-amber-400",
-  info: "text-sky-600 dark:text-sky-400",
-};
-const transitionText: Record<string, string> = {
-  opened: "text-amber-600 dark:text-amber-400",
-  escalated: "text-red-600 dark:text-red-400",
-  resolved: "text-emerald-600 dark:text-emerald-400",
+const transitionTone: Record<string, Tone> = {
+  opened: "warn",
+  escalated: "critical",
+  resolved: "good",
 };
 
 const sourceLabel: Record<string, string> = {
@@ -111,33 +116,27 @@ export default function NotificationsPage() {
 
   let body: React.ReactNode;
   if (state === "error" && !data) {
-    body = (
-      <div className="flex h-40 items-center justify-center rounded-lg border border-zinc-200 bg-white text-sm text-zinc-400 dark:border-zinc-800 dark:bg-black dark:text-zinc-500">
-        Notifications are temporarily unavailable.
-      </div>
-    );
+    body = <EmptyState message="Notifications are temporarily unavailable." />;
   } else if (!data) {
-    body = (
-      <div className="flex h-40 items-center justify-center rounded-lg border border-zinc-200 bg-white text-sm text-zinc-400 dark:border-zinc-800 dark:bg-black dark:text-zinc-500">
-        Loading notifications…
-      </div>
-    );
+    body = <EmptyState message="Loading notifications…" />;
   } else {
     body = (
       <div className="space-y-4">
         {settings && !settings.enabled ? (
-          <div className="rounded-lg border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-500 dark:border-zinc-800 dark:bg-black dark:text-zinc-400">
-            Notifications are turned off. Alert transitions are still evaluated and stored — enable
-            notifications in{" "}
-            <Link href="/settings" className="underline underline-offset-2">
-              Settings
-            </Link>{" "}
-            to record them here.
+          <div className="rounded-lg border border-zinc-200 bg-white px-4 py-3 dark:border-zinc-800 dark:bg-black">
+            <p className={mutedCls}>
+              Notifications are turned off. Alert transitions are still evaluated and stored —
+              enable notifications in{" "}
+              <Link href="/settings" className="underline underline-offset-2">
+                Settings
+              </Link>{" "}
+              to record them here.
+            </p>
           </div>
         ) : null}
 
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <p className="text-sm text-zinc-500 dark:text-zinc-400">
+          <p className={mutedCls}>
             {unread > 0 ? (
               <>
                 <span className="font-mono font-semibold text-zinc-900 dark:text-zinc-50">
@@ -159,16 +158,14 @@ export default function NotificationsPage() {
             type="button"
             onClick={() => void mutate({ all: true })}
             disabled={busy || unread === 0}
-            className="rounded-md border border-zinc-300 px-2.5 py-1.5 text-[13px] font-medium text-zinc-700 hover:bg-zinc-100 disabled:opacity-40 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800/60"
+            className={btnCls}
           >
             Mark all read
           </button>
         </div>
 
         {data.notifications.length === 0 ? (
-          <div className="flex h-32 items-center justify-center rounded-lg border border-zinc-200 bg-white text-sm text-zinc-400 dark:border-zinc-800 dark:bg-black dark:text-zinc-500">
-            No notifications yet. They appear when an alert opens, escalates or resolves.
-          </div>
+          <EmptyState message="No notifications yet. They appear when an alert opens, escalates or resolves." />
         ) : (
           <ul className="divide-y divide-zinc-100 overflow-hidden rounded-lg border border-zinc-200 bg-white dark:divide-zinc-900 dark:border-zinc-800 dark:bg-black">
             {data.notifications.map((n) => (
@@ -182,7 +179,7 @@ export default function NotificationsPage() {
           </ul>
         )}
 
-        <p className="text-xs text-zinc-400 dark:text-zinc-500">
+        <p className={footnoteCls}>
           Derived from DevPulse&apos;s own alert lifecycle — no AI-generated content, no external
           service, and no duplicate monitoring. Desktop toasts, when enabled, are Windows-local
           best-effort only.
@@ -192,15 +189,11 @@ export default function NotificationsPage() {
   }
 
   return (
-    <div className="space-y-6 p-4 md:p-6">
-      <div>
-        <h1 className="text-lg font-semibold tracking-tight text-zinc-900 dark:text-zinc-50">
-          Notifications
-        </h1>
-        <p className="mt-0.5 text-sm text-zinc-500 dark:text-zinc-400">
-          Alert transitions recorded locally — opened, escalated and resolved.
-        </p>
-      </div>
+    <div className={pageCls}>
+      <PageHeader
+        title="Notifications"
+        description="Alert transitions recorded locally — opened, escalated and resolved."
+      />
       {body}
     </div>
   );
@@ -222,30 +215,28 @@ function NotificationRow({
         unread ? "bg-zinc-50/70 dark:bg-zinc-900/40" : ""
       }`}
     >
-      <span
-        className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${
-          unread ? sevDot[n.severity] : "bg-zinc-200 dark:bg-zinc-800"
-        }`}
-        aria-hidden="true"
+      <StatusDot
+        tone={unread ? severityTone[n.severity] : "neutral"}
+        className="mt-1.5 h-2 w-2"
       />
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
           <span className="text-sm font-medium text-zinc-900 dark:text-zinc-50">{n.title}</span>
           <span
             className={`text-[11px] font-medium uppercase tracking-wide ${
-              transitionText[n.transition] ?? "text-zinc-500"
+              transitionTone[n.transition]
+                ? toneText[transitionTone[n.transition]]
+                : "text-zinc-500 dark:text-zinc-400"
             }`}
           >
             {TRANSITION_LABELS[n.transition] ?? n.transition}
           </span>
-          <span className={`text-[11px] uppercase tracking-wide ${sevText[n.severity]}`}>
+          <StatusLabel tone={severityTone[n.severity]} className="text-[11px] uppercase tracking-wide">
             {n.severity}
-          </span>
+          </StatusLabel>
         </div>
-        {n.message && (
-          <p className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">{n.message}</p>
-        )}
-        <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-zinc-400 dark:text-zinc-500">
+        {n.message && <p className={`mt-0.5 ${cellMutedCls}`}>{n.message}</p>}
+        <div className={`mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 ${footnoteCls}`}>
           <span>{sourceLabel[n.source] ?? n.source}</span>
           {n.projectName && (
             <>
@@ -254,20 +245,15 @@ function NotificationRow({
             </>
           )}
           <span aria-hidden="true">·</span>
-          <span className="font-mono">{fmtWhen(n.createdAt)}</span>
+          <span className={metaCls}>{fmtWhen(n.createdAt)}</span>
         </div>
       </div>
       {unread ? (
-        <button
-          type="button"
-          onClick={onRead}
-          disabled={busy}
-          className="shrink-0 rounded border border-zinc-200 px-2 py-1 text-[11px] font-medium text-zinc-500 hover:bg-zinc-100 hover:text-zinc-800 disabled:opacity-50 dark:border-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-800/60 dark:hover:text-zinc-200"
-        >
+        <button type="button" onClick={onRead} disabled={busy} className={`shrink-0 ${btnSmall}`}>
           Mark read
         </button>
       ) : (
-        <span className="shrink-0 text-[11px] text-zinc-300 dark:text-zinc-600">read</span>
+        <span className={`shrink-0 ${footnoteCls}`}>read</span>
       )}
     </li>
   );

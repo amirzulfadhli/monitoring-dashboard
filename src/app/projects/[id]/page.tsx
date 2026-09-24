@@ -3,7 +3,6 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import type { Severity } from "@/lib/alerts/model";
 import type {
   ProjectDetail,
   ProjectHealth,
@@ -12,6 +11,30 @@ import type {
   ProjectSourceType,
   SourceHealth,
 } from "@/lib/projects/types";
+import {
+  EmptyState,
+  Field,
+  PageHeader,
+  StatusDot,
+  StatusLabel,
+  btnCls,
+  btnPrimary,
+  btnQuiet,
+  cellMonoCls,
+  cellMutedCls,
+  footnoteCls,
+  inputCls,
+  mutedCls,
+  pageCls,
+  severityTone,
+  tableCls,
+  tableWrapCls,
+  tdCls,
+  thCls,
+  theadRowCls,
+  trCls,
+  type Tone,
+} from "@/components/ui";
 
 /**
  * Project detail. Every value on this page comes from the project API, which
@@ -22,20 +45,11 @@ import type {
 
 const REFRESH_MS = 30_000;
 
-const inputCls =
-  "w-full rounded-md border border-zinc-300 bg-white px-2.5 py-1.5 text-sm text-zinc-900 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-black dark:text-zinc-100";
-const btnPrimary =
-  "rounded-md bg-zinc-900 px-2.5 py-1.5 text-sm font-medium text-zinc-50 hover:bg-zinc-700 disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300";
-const btnCls =
-  "rounded-md border border-zinc-300 px-2.5 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800/60";
-const btnQuiet =
-  "rounded-md px-2 py-1 text-xs text-zinc-500 hover:bg-zinc-100 hover:text-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-800/60 dark:hover:text-zinc-200";
-
-const healthDot: Record<SourceHealth, string> = {
-  healthy: "bg-emerald-500",
-  warn: "bg-amber-500",
-  critical: "bg-red-500",
-  unknown: "bg-zinc-300 dark:bg-zinc-600",
+const healthTone: Record<SourceHealth, Tone> = {
+  healthy: "good",
+  warn: "warn",
+  critical: "critical",
+  unknown: "neutral",
 };
 
 const projectState: Record<ProjectHealthState, { band: SourceHealth; label: string }> = {
@@ -43,12 +57,6 @@ const projectState: Record<ProjectHealthState, { band: SourceHealth; label: stri
   degraded: { band: "warn", label: "Degraded" },
   critical: { band: "critical", label: "Critical" },
   unknown: { band: "unknown", label: "Unknown" },
-};
-
-const sevDot: Record<Severity, string> = {
-  critical: "bg-red-500",
-  warning: "bg-amber-500",
-  info: "bg-sky-500",
 };
 
 type Api = { project: ProjectDetail };
@@ -178,56 +186,49 @@ export default function ProjectDetailPage() {
 
   if (state === "error" && !project) {
     return (
-      <div className="space-y-4 p-4 md:p-6">
+      <div className={pageCls}>
         <BackLink />
-        <Empty message="This project could not be loaded." />
+        <EmptyState message="This project could not be loaded." />
       </div>
     );
   }
   if (!project) {
     return (
-      <div className="space-y-4 p-4 md:p-6">
+      <div className={pageCls}>
         <BackLink />
-        <Empty message="Loading project…" />
+        <EmptyState message="Loading project…" />
       </div>
     );
   }
 
   return (
-    <div className="space-y-6 p-4 md:p-6">
+    <div className={pageCls}>
       <BackLink />
 
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div className="min-w-0">
-          <h1 className="text-lg font-semibold tracking-tight text-zinc-900 dark:text-zinc-50">
-            {project.name}
-          </h1>
-          <p className="mt-0.5 max-w-[640px] text-sm text-zinc-500 dark:text-zinc-400">
-            {project.description ?? "No description."}
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            className={btnCls}
-            onClick={() => {
-              setName(project.name);
-              setDescription(project.description ?? "");
-              setEditing((v) => !v);
-            }}
-          >
-            {editing ? "Cancel" : "Edit"}
-          </button>
-          <button
-            type="button"
-            className={btnCls}
-            onClick={remove}
-            disabled={busy}
-          >
-            Delete
-          </button>
-        </div>
-      </div>
+      <PageHeader
+        title={project.name}
+        description={
+          <span className="block max-w-[640px]">{project.description ?? "No description."}</span>
+        }
+        meta={
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              className={btnCls}
+              onClick={() => {
+                setName(project.name);
+                setDescription(project.description ?? "");
+                setEditing((v) => !v);
+              }}
+            >
+              {editing ? "Cancel" : "Edit"}
+            </button>
+            <button type="button" className={btnCls} onClick={remove} disabled={busy}>
+              Delete
+            </button>
+          </div>
+        }
+      />
 
       <HealthBanner health={project.health} />
 
@@ -237,30 +238,22 @@ export default function ProjectDetailPage() {
           className="space-y-3 rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-black"
         >
           <div className="grid gap-3 md:grid-cols-2">
-            <div>
-              <label htmlFor="edit-name" className="block pb-1 text-[11px] font-medium uppercase tracking-wider text-zinc-400 dark:text-zinc-500">
-                Name
-              </label>
+            <Field label="Name">
               <input
-                id="edit-name"
                 className={inputCls}
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 autoComplete="off"
               />
-            </div>
-            <div>
-              <label htmlFor="edit-description" className="block pb-1 text-[11px] font-medium uppercase tracking-wider text-zinc-400 dark:text-zinc-500">
-                Description
-              </label>
+            </Field>
+            <Field label="Description">
               <input
-                id="edit-description"
                 className={inputCls}
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
                 autoComplete="off"
               />
-            </div>
+            </Field>
           </div>
           <button type="submit" className={btnPrimary} disabled={busy || !name.trim()}>
             {busy ? "Saving…" : "Save changes"}
@@ -268,15 +261,15 @@ export default function ProjectDetailPage() {
         </form>
       )}
 
-      {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
+      {error && (
+        <p className="text-sm text-red-600 dark:text-red-400" role="alert">
+          {error}
+        </p>
+      )}
 
       <form onSubmit={assign} className="flex flex-wrap items-end gap-2">
-        <div className="min-w-[260px] flex-1">
-          <label htmlFor="assign-source" className="block pb-1 text-[11px] font-medium uppercase tracking-wider text-zinc-400 dark:text-zinc-500">
-            Assign an existing source
-          </label>
+        <Field label="Assign an existing source" className="min-w-[260px] flex-1">
           <select
-            id="assign-source"
             className={inputCls}
             value={pick}
             onChange={(e) => setPick(e.target.value)}
@@ -296,7 +289,7 @@ export default function ProjectDetailPage() {
               );
             })}
           </select>
-        </div>
+        </Field>
         <button type="submit" className={btnPrimary} disabled={busy || !pick}>
           Assign
         </button>
@@ -315,25 +308,20 @@ export default function ProjectDetailPage() {
               All alerts
             </Link>
           </div>
-          <ul className="overflow-hidden rounded-lg border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-black">
+          <ul className="divide-y divide-zinc-100 overflow-hidden rounded-lg border border-zinc-200 bg-white dark:divide-zinc-900 dark:border-zinc-800 dark:bg-black">
             {project.alerts.map((a) => (
-              <li
-                key={a.fingerprint}
-                className="flex items-start gap-3 border-b border-zinc-100 px-4 py-2.5 last:border-0 dark:border-zinc-900"
-              >
-                <span
-                  className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${sevDot[a.severity]}`}
-                  aria-hidden="true"
+              <li key={a.fingerprint} className="flex items-start gap-3 px-4 py-2.5">
+                <StatusDot
+                  tone={severityTone[a.severity]}
+                  className="mt-1.5 h-2 w-2"
                 />
                 <div className="min-w-0 flex-1">
                   <p className="text-sm font-medium text-zinc-900 dark:text-zinc-50">{a.title}</p>
-                  <p className="truncate text-xs text-zinc-500 dark:text-zinc-400" title={a.message}>
+                  <p className={`truncate ${mutedCls}`} title={a.message}>
                     {a.message}
                   </p>
                 </div>
-                <span className="shrink-0 pt-0.5 text-[11px] text-zinc-400 dark:text-zinc-500">
-                  {fmtAgo(a.lastSeenAt)}
-                </span>
+                <span className={`shrink-0 pt-0.5 ${cellMutedCls}`}>{fmtAgo(a.lastSeenAt)}</span>
               </li>
             ))}
           </ul>
@@ -352,49 +340,38 @@ export default function ProjectDetailPage() {
                 </span>
               </h2>
               {rows.length === 0 ? (
-                <p className="text-xs text-zinc-400 dark:text-zinc-500">{section.empty}</p>
+                <p className={footnoteCls}>{section.empty}</p>
               ) : (
-                <div className="overflow-x-auto rounded-lg border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-black">
-                  <table className="w-full min-w-[560px] text-left text-sm">
+                <div className={tableWrapCls}>
+                  <table className={`${tableCls} min-w-[560px]`}>
                     <thead>
-                      <tr className="border-b border-zinc-200 text-[11px] uppercase tracking-wider text-zinc-400 dark:border-zinc-800 dark:text-zinc-500">
-                        <th className="px-4 py-2.5 font-medium">Source</th>
-                        <th className="px-4 py-2.5 font-medium">Target</th>
-                        <th className="px-4 py-2.5 font-medium">Latest state</th>
-                        <th className="px-4 py-2.5 font-medium">Observed</th>
-                        <th className="px-4 py-2.5" />
+                      <tr className={theadRowCls}>
+                        <th className={thCls}>Source</th>
+                        <th className={thCls}>Target</th>
+                        <th className={thCls}>Latest state</th>
+                        <th className={thCls}>Observed</th>
+                        <th className={thCls} />
                       </tr>
                     </thead>
                     <tbody>
                       {rows.map((s) => (
-                        <tr
-                          key={`${s.type}:${s.id}`}
-                          className="border-b border-zinc-100 last:border-0 dark:border-zinc-900"
-                        >
-                          <td className="px-4 py-3 font-medium text-zinc-900 dark:text-zinc-50">
+                        <tr key={`${s.type}:${s.id}`} className={trCls}>
+                          <td className={`${tdCls} font-medium text-zinc-900 dark:text-zinc-50`}>
                             {s.name}
-                            {!s.enabled && (
-                              <span className="ml-2 text-[11px] text-zinc-400 dark:text-zinc-500">
-                                disabled
-                              </span>
-                            )}
+                            {!s.enabled && <span className={`ml-2 ${cellMutedCls}`}>disabled</span>}
                           </td>
-                          <td className="max-w-[240px] truncate px-4 py-3 font-mono text-xs text-zinc-500 dark:text-zinc-400">
+                          <td className={`max-w-[240px] truncate ${tdCls} ${cellMonoCls}`}>
                             {s.detail}
                           </td>
-                          <td className="px-4 py-3">
-                            <span className="inline-flex items-center gap-1.5 capitalize text-zinc-700 dark:text-zinc-200">
-                              <span
-                                className={`h-2 w-2 rounded-full ${healthDot[s.health]}`}
-                                aria-hidden="true"
-                              />
+                          <td className={tdCls}>
+                            <StatusLabel tone={healthTone[s.health]} className="text-xs capitalize">
                               {s.health === "unknown" ? "not reported" : s.health}
-                            </span>
+                            </StatusLabel>
                           </td>
-                          <td className="px-4 py-3 text-xs text-zinc-400 tabular-nums dark:text-zinc-500">
+                          <td className={`${tdCls} ${cellMutedCls} tabular-nums`}>
                             {fmtAgo(s.checkedAt)}
                           </td>
-                          <td className="px-4 py-3 text-right">
+                          <td className={`${tdCls} text-right`}>
                             <button
                               type="button"
                               className={btnQuiet}
@@ -415,7 +392,7 @@ export default function ProjectDetailPage() {
         })}
       </div>
 
-      <p className="text-xs text-zinc-400 dark:text-zinc-500">
+      <p className={footnoteCls}>
         States above are the latest results DevPulse has already stored. Opening this page does not
         run a check. Unassigning a source stops grouping only — monitoring is unchanged.
       </p>
@@ -444,24 +421,24 @@ function HealthBanner({ health }: { health: ProjectHealth }) {
           .join(" · ");
 
   return (
-    <section className="rounded-lg border border-zinc-200 bg-white px-4 py-3 dark:border-zinc-800 dark:bg-black">
+    <div className="rounded-lg border border-zinc-200 bg-white px-4 py-3 dark:border-zinc-800 dark:bg-black">
       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
         <span className="flex items-center gap-1.5">
-          <span className={`h-2 w-2 rounded-full ${healthDot[band]}`} aria-hidden="true" />
+          <StatusDot tone={healthTone[band]} />
           <span className="text-sm font-medium text-zinc-900 dark:text-zinc-50">{label}</span>
         </span>
-        <span className="text-xs text-zinc-500 tabular-nums dark:text-zinc-400">{summary}</span>
+        <span className={`tabular-nums ${mutedCls}`}>{summary}</span>
       </div>
       {health.reasons.length > 0 && (
         <ul className="mt-1.5 space-y-0.5">
           {health.reasons.map((r) => (
-            <li key={`${r.type}:${r.id}`} className="text-xs text-zinc-500 dark:text-zinc-400">
+            <li key={`${r.type}:${r.id}`} className={mutedCls}>
               {r.message}
             </li>
           ))}
         </ul>
       )}
-    </section>
+    </div>
   );
 }
 
@@ -473,13 +450,5 @@ function BackLink() {
     >
       ← Projects
     </Link>
-  );
-}
-
-function Empty({ message }: { message: string }) {
-  return (
-    <div className="flex h-40 items-center justify-center rounded-lg border border-zinc-200 bg-white text-sm text-zinc-400 dark:border-zinc-800 dark:bg-black dark:text-zinc-500">
-      {message}
-    </div>
   );
 }

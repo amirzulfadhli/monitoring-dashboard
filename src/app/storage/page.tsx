@@ -3,19 +3,27 @@
 import { useEffect, useState } from "react";
 import type { StorageView, StorageVolumeView } from "@/app/api/storage/route";
 import type { DiskState } from "@/lib/disks/model";
+import {
+  EmptyState,
+  PageHeader,
+  Panel,
+  StatusDot,
+  StatusLabel,
+  cellMutedCls,
+  footnoteCls,
+  metaCls,
+  pageCls,
+  tableCls,
+  tdCls,
+  thCls,
+  theadRowCls,
+  trCls,
+  type Tone,
+} from "@/components/ui";
 
 // The scheduler owns the collection cadence (~5m); this only controls how often
 // the page re-reads the collected state.
 const REFRESH_MS = 30_000;
-
-type Tone = "good" | "warn" | "critical" | "muted";
-
-const toneDot: Record<Tone, string> = {
-  good: "bg-emerald-500",
-  warn: "bg-amber-500",
-  critical: "bg-red-500",
-  muted: "bg-zinc-300 dark:bg-zinc-600",
-};
 
 const stateTone: Record<DiskState, Tone> = {
   normal: "good",
@@ -112,38 +120,32 @@ export default function StoragePage() {
 
   let body: React.ReactNode;
   if (!data && state === "error") {
-    body = <Empty message="Storage monitoring is unavailable." />;
+    body = <EmptyState message="Storage monitoring is unavailable." />;
   } else if (!data) {
-    body = <Empty message="Reading local storage state…" />;
+    body = <EmptyState message="Reading local storage state…" />;
   } else if (!data.supported) {
     body = (
-      <Empty
+      <EmptyState
         message={`Local storage monitoring is Windows-only — this host reports platform "${data.platform}".`}
       />
     );
   } else if (data.volumes.length === 0) {
-    body = (
-      <Empty message={data.reason ?? "No local volume has been observed yet."} />
-    );
+    body = <EmptyState message={data.reason ?? "No local volume has been observed yet."} />;
   } else {
     body = <StorageBody data={data} />;
   }
 
   return (
-    <div className="space-y-6 p-4 md:p-6">
-      <div className="flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <h1 className="text-lg font-semibold tracking-tight text-zinc-900 dark:text-zinc-50">
-            Storage
-          </h1>
-          <p className="mt-0.5 text-sm text-zinc-500 dark:text-zinc-400">
-            Local fixed volume capacity for this machine.
-          </p>
-        </div>
-        <span className="font-mono text-xs text-zinc-400 dark:text-zinc-500">
-          {data?.lastCheckedAt ? `Checked ${fmtAgo(data.lastCheckedAt)}` : "No observation yet"}
-        </span>
-      </div>
+    <div className={pageCls}>
+      <PageHeader
+        title="Storage"
+        description="Local fixed volume capacity for this machine."
+        meta={
+          <span className={metaCls}>
+            {data?.lastCheckedAt ? `Checked ${fmtAgo(data.lastCheckedAt)}` : "No observation yet"}
+          </span>
+        }
+      />
       {body}
     </div>
   );
@@ -159,56 +161,45 @@ function StorageBody({ data }: { data: StorageView }) {
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-2 rounded-lg border border-zinc-200 bg-white px-4 py-2.5 dark:border-zinc-800 dark:bg-black">
-        <span
-          className={`h-2 w-2 shrink-0 rounded-full ${toneDot[worst ? stateTone[worst.state] : "muted"]}`}
-          aria-hidden="true"
-        />
+        <StatusDot tone={worst ? stateTone[worst.state] : "neutral"} />
         <span className="text-sm text-zinc-700 dark:text-zinc-200">
           {totals
             ? `${totals.volumes} volume${totals.volumes === 1 ? "" : "s"} · ${fmtBytes(totals.freeBytes)} free of ${fmtBytes(totals.totalBytes)}`
             : "No volume observed"}
         </span>
-        <span className="ml-auto text-xs text-zinc-400 dark:text-zinc-500">
+        <span className={`ml-auto ${footnoteCls}`}>
           Warning ≥ {thresholds.warningPct}% · Critical ≥ {thresholds.criticalPct}%
         </span>
       </div>
 
-      <section className="rounded-lg border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-black">
-        <div className="border-b border-zinc-100 px-4 py-2.5 dark:border-zinc-800/60">
-          <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100">Volumes</p>
-        </div>
+      <Panel title="Volumes" padded={false}>
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[720px] text-left text-sm">
+          <table className={`${tableCls} min-w-[720px]`}>
             <thead>
-              <tr className="border-b border-zinc-200 text-[11px] uppercase tracking-wider text-zinc-400 dark:border-zinc-800 dark:text-zinc-500">
-                <th className="px-4 py-2 font-medium">Volume</th>
-                <th className="px-4 py-2 font-medium">Filesystem</th>
-                <th className="px-4 py-2 font-medium">Used / total</th>
-                <th className="px-4 py-2 font-medium">Free</th>
-                <th className="px-4 py-2 font-medium">Usage</th>
-                <th className="px-4 py-2 font-medium">State</th>
-                <th className="px-4 py-2 font-medium">Checked</th>
+              <tr className={theadRowCls}>
+                <th className={thCls}>Volume</th>
+                <th className={thCls}>Filesystem</th>
+                <th className={thCls}>Used / total</th>
+                <th className={thCls}>Free</th>
+                <th className={thCls}>Usage</th>
+                <th className={thCls}>State</th>
+                <th className={thCls}>Checked</th>
               </tr>
             </thead>
             <tbody>
               {volumes.map((v) => (
-                <tr
-                  key={v.id}
-                  className="border-b border-zinc-100 last:border-0 dark:border-zinc-900"
-                >
-                  <td className="px-4 py-2 font-mono text-xs text-zinc-800 dark:text-zinc-100">
+                <tr key={v.id} className={trCls}>
+                  <td className={`${tdCls} font-mono text-xs text-zinc-800 dark:text-zinc-100`}>
                     {v.id}
                   </td>
-                  <td className="px-4 py-2 text-xs text-zinc-500 dark:text-zinc-400">
-                    {v.filesystem ?? "–"}
-                  </td>
-                  <td className="px-4 py-2 font-mono text-xs tabular-nums text-zinc-600 dark:text-zinc-300">
+                  <td className={`${tdCls} ${cellMutedCls}`}>{v.filesystem ?? "–"}</td>
+                  <td className={`${tdCls} font-mono text-xs tabular-nums text-zinc-600 dark:text-zinc-300`}>
                     {fmtBytes(v.usedBytes)} / {fmtBytes(v.totalBytes)}
                   </td>
-                  <td className="px-4 py-2 font-mono text-xs tabular-nums text-zinc-600 dark:text-zinc-300">
+                  <td className={`${tdCls} font-mono text-xs tabular-nums text-zinc-600 dark:text-zinc-300`}>
                     {fmtBytes(v.freeBytes)}
                   </td>
-                  <td className="px-4 py-2">
+                  <td className={tdCls}>
                     <div className="flex items-center gap-2">
                       <UsageBar pct={v.usagePct} state={v.state} />
                       <span className="font-mono text-xs tabular-nums text-zinc-700 dark:text-zinc-200">
@@ -216,17 +207,13 @@ function StorageBody({ data }: { data: StorageView }) {
                       </span>
                     </div>
                   </td>
-                  <td className="px-4 py-2">
-                    <span className="inline-flex items-center gap-1.5 text-xs text-zinc-700 dark:text-zinc-200">
-                      <span
-                        className={`h-2 w-2 rounded-full ${toneDot[stateTone[v.state]]}`}
-                        aria-hidden="true"
-                      />
+                  <td className={tdCls}>
+                    <StatusLabel tone={stateTone[v.state]} className="text-xs">
                       {stateLabel[v.state]}
-                    </span>
+                    </StatusLabel>
                   </td>
                   <td
-                    className="px-4 py-2 text-xs text-zinc-400 dark:text-zinc-500"
+                    className={`${tdCls} ${cellMutedCls}`}
                     title={data.lastCheckedAt ? fmtTime(data.lastCheckedAt) : undefined}
                   >
                     {data.lastCheckedAt ? fmtAgo(data.lastCheckedAt) : "–"}
@@ -236,21 +223,13 @@ function StorageBody({ data }: { data: StorageView }) {
             </tbody>
           </table>
         </div>
-      </section>
+      </Panel>
 
-      <p className="text-xs text-zinc-400 dark:text-zinc-500">
+      <p className={footnoteCls}>
         Read-only capacity queries for locally attached fixed volumes. DevPulse never enumerates
         files or folders, measures directory sizes, reads file names, runs SMART diagnostics or
         modifies a disk — a nearly-full volume is reported as a condition, not as a failure.
       </p>
-    </div>
-  );
-}
-
-function Empty({ message }: { message: string }) {
-  return (
-    <div className="flex h-40 items-center justify-center rounded-lg border border-zinc-200 bg-white px-6 text-center text-sm text-zinc-400 dark:border-zinc-800 dark:bg-black dark:text-zinc-500">
-      {message}
     </div>
   );
 }

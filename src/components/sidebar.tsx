@@ -4,11 +4,26 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { navSections } from "@/data/dashboard";
+import { labelCls } from "@/components/ui";
 
-function isActive(pathname: string, href?: string) {
+export function isActive(pathname: string, href?: string) {
   if (!href) return false;
   if (href === "/") return pathname === "/";
   return pathname === href || pathname.startsWith(`${href}/`);
+}
+
+/**
+ * Nav link treatment, shared by the desktop sidebar and the narrow-viewport
+ * strip below so a section reads the same in both. The active row is also
+ * marked with `aria-current`, so it is not signalled by fill colour alone.
+ */
+export function navLinkCls(active: boolean, enabled: boolean) {
+  const base = "flex items-center rounded-md px-2 py-1.5 text-[13px]";
+  if (active) {
+    return `${base} bg-zinc-900 font-medium text-zinc-50 dark:bg-zinc-100 dark:text-zinc-900`;
+  }
+  if (!enabled) return `${base} cursor-default text-zinc-500 dark:text-zinc-400`;
+  return `${base} text-zinc-500 hover:bg-zinc-100 hover:text-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-800/60 dark:hover:text-zinc-200`;
 }
 
 /** Where the unread badge belongs. Only that nav item ever shows a count. */
@@ -56,18 +71,12 @@ export function Sidebar() {
           devpulse
         </span>
       </div>
-      <nav className="flex-1 overflow-y-auto px-3 py-3">
-        <p className="px-2 pb-2 text-[11px] font-medium uppercase tracking-wider text-zinc-400 dark:text-zinc-500">
-          Monitor
-        </p>
+      <nav aria-label="Sections" className="flex-1 overflow-y-auto px-3 py-3">
+        <p className={`px-2 pb-2 ${labelCls}`}>Monitor</p>
         <ul className="space-y-px">
           {navSections.map((item) => {
             const active = isActive(pathname, item.href);
-            const linkClass = active
-              ? "flex rounded-md bg-zinc-900 px-2 py-1.5 text-[13px] font-medium text-zinc-50 dark:bg-zinc-100 dark:text-zinc-900"
-              : item.href
-                ? "flex rounded-md px-2 py-1.5 text-[13px] text-zinc-500 hover:bg-zinc-100 hover:text-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-800/60 dark:hover:text-zinc-200"
-                : "flex cursor-default rounded-md px-2 py-1.5 text-[13px] text-zinc-500 dark:text-zinc-400";
+            const linkClass = navLinkCls(active, Boolean(item.href));
             const showBadge = item.href === BADGE_HREF && unread > 0;
             const content = (
               <>

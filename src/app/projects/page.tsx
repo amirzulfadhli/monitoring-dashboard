@@ -3,6 +3,26 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import type { ProjectHealth, ProjectHealthState, ProjectSummary, SourceHealth } from "@/lib/projects/types";
+import {
+  EmptyState,
+  Field,
+  PageHeader,
+  StatusDot,
+  btnCls,
+  btnPrimary,
+  cellMutedCls,
+  footnoteCls,
+  inputCls,
+  pageCls,
+  tableCls,
+  tableWrapCls,
+  tdCls,
+  thCls,
+  theadRowCls,
+  toneText,
+  trCls,
+  type Tone,
+} from "@/components/ui";
 
 /**
  * Projects list. A project groups sources DevPulse already monitors, so this
@@ -12,24 +32,17 @@ import type { ProjectHealth, ProjectHealthState, ProjectSummary, SourceHealth } 
 
 const REFRESH_MS = 30_000;
 
-const inputCls =
-  "w-full rounded-md border border-zinc-300 bg-white px-2.5 py-1.5 text-sm text-zinc-900 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-black dark:text-zinc-100";
-const btnPrimary =
-  "rounded-md bg-zinc-900 px-2.5 py-1.5 text-sm font-medium text-zinc-50 hover:bg-zinc-700 disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300";
-const btnCls =
-  "rounded-md border border-zinc-300 px-2.5 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800/60";
-
-const healthDot: Record<SourceHealth, string> = {
-  healthy: "bg-emerald-500",
-  warn: "bg-amber-500",
-  critical: "bg-red-500",
-  unknown: "bg-zinc-300 dark:bg-zinc-600",
+const healthTone: Record<SourceHealth, Tone> = {
+  healthy: "good",
+  warn: "warn",
+  critical: "critical",
+  unknown: "neutral",
 };
 
 const healthText: Record<SourceHealth, string> = {
-  healthy: "text-emerald-600 dark:text-emerald-400",
-  warn: "text-amber-600 dark:text-amber-400",
-  critical: "text-red-600 dark:text-red-400",
+  healthy: toneText.good,
+  warn: toneText.warn,
+  critical: toneText.critical,
   unknown: "text-zinc-400 dark:text-zinc-500",
 };
 
@@ -75,10 +88,10 @@ function HealthCell({ health }: { health: ProjectHealth }) {
   return (
     <span className="block" title={title}>
       <span className="flex items-center gap-1.5">
-        <span className={`h-2 w-2 rounded-full ${healthDot[band]}`} aria-hidden="true" />
+        <StatusDot tone={healthTone[band]} />
         <span className={`text-sm ${healthText[band]}`}>{label}</span>
       </span>
-      <span className="mt-0.5 flex flex-wrap items-center gap-x-2 text-[11px] text-zinc-400 dark:text-zinc-500">
+      <span className={`mt-0.5 flex flex-wrap items-center gap-x-2 ${cellMutedCls}`}>
         {health.counts.total === 0 ? (
           <span>no sources</span>
         ) : impaired.length === 0 ? (
@@ -161,30 +174,27 @@ export default function ProjectsPage() {
 
   let body: React.ReactNode;
   if (state === "error" && !data) {
-    body = <Empty message="Projects are temporarily unavailable." />;
+    body = <EmptyState message="Projects are temporarily unavailable." />;
   } else if (!data) {
-    body = <Empty message="Loading projects…" />;
+    body = <EmptyState message="Loading projects…" />;
   } else if (data.projects.length === 0) {
-    body = <Empty message="No projects yet. Create one to group related sources." />;
+    body = <EmptyState message="No projects yet. Create one to group related sources." />;
   } else {
     body = (
-      <div className="overflow-x-auto rounded-lg border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-black">
-        <table className="w-full min-w-[640px] text-left text-sm">
+      <div className={tableWrapCls}>
+        <table className={`${tableCls} min-w-[640px]`}>
           <thead>
-            <tr className="border-b border-zinc-200 text-[11px] uppercase tracking-wider text-zinc-400 dark:border-zinc-800 dark:text-zinc-500">
-              <th className="px-4 py-2.5 font-medium">Project</th>
-              <th className="px-4 py-2.5 font-medium">Sources</th>
-              <th className="px-4 py-2.5 font-medium">Health</th>
-              <th className="px-4 py-2.5 font-medium">Updated</th>
+            <tr className={theadRowCls}>
+              <th className={thCls}>Project</th>
+              <th className={thCls}>Sources</th>
+              <th className={thCls}>Health</th>
+              <th className={thCls}>Updated</th>
             </tr>
           </thead>
           <tbody>
             {data.projects.map((p) => (
-              <tr
-                key={p.id}
-                className="border-b border-zinc-100 last:border-0 dark:border-zinc-900"
-              >
-                <td className="px-4 py-3">
+              <tr key={p.id} className={trCls}>
+                <td className={tdCls}>
                   <Link
                     href={`/projects/${encodeURIComponent(p.id)}`}
                     className="font-medium text-zinc-900 hover:underline dark:text-zinc-50"
@@ -192,16 +202,16 @@ export default function ProjectsPage() {
                     {p.name}
                   </Link>
                   {p.description && (
-                    <p className="mt-0.5 max-w-[320px] truncate text-xs text-zinc-500 dark:text-zinc-400">
+                    <p className={`mt-0.5 max-w-[320px] truncate ${cellMutedCls}`}>
                       {p.description}
                     </p>
                   )}
                 </td>
-                <td className="px-4 py-3">
+                <td className={tdCls}>
                   <span className="font-mono text-xs tabular-nums text-zinc-600 dark:text-zinc-300">
                     {p.sources.total}
                   </span>
-                  <span className="ml-2 text-[11px] text-zinc-400 dark:text-zinc-500">
+                  <span className={`ml-2 ${cellMutedCls}`}>
                     {[
                       p.sources.website && `${p.sources.website} site`,
                       p.sources.repository && `${p.sources.repository} repo`,
@@ -212,10 +222,10 @@ export default function ProjectsPage() {
                       .join(" · ")}
                   </span>
                 </td>
-                <td className="px-4 py-3">
+                <td className={tdCls}>
                   <HealthCell health={p.health} />
                 </td>
-                <td className="px-4 py-3 text-xs text-zinc-400 dark:text-zinc-500">
+                <td className={`${tdCls} ${cellMutedCls}`}>
                   <span className="tabular-nums">{fmtAgo(p.updatedAt)}</span>
                 </td>
               </tr>
@@ -227,21 +237,16 @@ export default function ProjectsPage() {
   }
 
   return (
-    <div className="space-y-6 p-4 md:p-6">
-      <div className="flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <h1 className="text-lg font-semibold tracking-tight text-zinc-900 dark:text-zinc-50">
-            Projects
-          </h1>
-          <p className="mt-0.5 text-sm text-zinc-500 dark:text-zinc-400">
-            Grouping for sources DevPulse already monitors. A project labels its sources — it
-            does not collect data of its own.
-          </p>
-        </div>
-        <button type="button" className={btnCls} onClick={() => setAdding((v) => !v)}>
-          {adding ? "Cancel" : "New project"}
-        </button>
-      </div>
+    <div className={pageCls}>
+      <PageHeader
+        title="Projects"
+        description="Grouping for sources DevPulse already monitors. A project labels its sources — it does not collect data of its own."
+        meta={
+          <button type="button" className={btnCls} onClick={() => setAdding((v) => !v)}>
+            {adding ? "Cancel" : "New project"}
+          </button>
+        }
+      />
 
       {adding && (
         <form
@@ -249,34 +254,30 @@ export default function ProjectsPage() {
           className="space-y-3 rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-black"
         >
           <div className="grid gap-3 md:grid-cols-2">
-            <div>
-              <label htmlFor="project-name" className="block pb-1 text-[11px] font-medium uppercase tracking-wider text-zinc-400 dark:text-zinc-500">
-                Name
-              </label>
+            <Field label="Name">
               <input
-                id="project-name"
                 className={inputCls}
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 placeholder="Storefront"
                 autoComplete="off"
               />
-            </div>
-            <div>
-              <label htmlFor="project-description" className="block pb-1 text-[11px] font-medium uppercase tracking-wider text-zinc-400 dark:text-zinc-500">
-                Description (optional)
-              </label>
+            </Field>
+            <Field label="Description (optional)">
               <input
-                id="project-description"
                 className={inputCls}
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
                 placeholder="Everything the customer-facing site depends on"
                 autoComplete="off"
               />
-            </div>
+            </Field>
           </div>
-          {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
+          {error && (
+            <p className="text-sm text-red-600 dark:text-red-400" role="alert">
+              {error}
+            </p>
+          )}
           <button type="submit" className={btnPrimary} disabled={busy || !name.trim()}>
             {busy ? "Creating…" : "Create project"}
           </button>
@@ -285,18 +286,10 @@ export default function ProjectsPage() {
 
       {body}
 
-      <p className="text-xs text-zinc-400 dark:text-zinc-500">
+      <p className={footnoteCls}>
         Deleting a project never deletes its sources or their history — the sources simply become
         ungrouped.
       </p>
-    </div>
-  );
-}
-
-function Empty({ message }: { message: string }) {
-  return (
-    <div className="flex h-40 items-center justify-center rounded-lg border border-zinc-200 bg-white px-4 text-center text-sm text-zinc-400 dark:border-zinc-800 dark:bg-black dark:text-zinc-500">
-      {message}
     </div>
   );
 }

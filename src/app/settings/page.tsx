@@ -14,6 +14,19 @@ import {
   NOTIFICATION_MIN_SEVERITIES,
   type NotificationSettings,
 } from "@/lib/notifications/model";
+import {
+  EmptyState,
+  Field,
+  PageHeader,
+  Panel,
+  StatusLabel,
+  btnCls,
+  btnPrimary,
+  footnoteCls,
+  inputCls,
+  labelCls,
+  pageCls,
+} from "@/components/ui";
 
 /**
  * Settings page. Configures what DevPulse monitors and how it alerts. All
@@ -37,15 +50,6 @@ type Bundle = {
   integrations: { github: boolean; deepseek: boolean };
 };
 
-const inputCls =
-  "w-full rounded-md border border-zinc-300 bg-white px-2.5 py-1.5 text-sm text-zinc-900 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-black dark:text-zinc-100";
-const btnCls =
-  "rounded-md border border-zinc-300 px-2.5 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800/60";
-const btnPrimary =
-  "rounded-md bg-zinc-900 px-2.5 py-1.5 text-sm font-medium text-zinc-50 hover:bg-zinc-700 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300";
-const labelCls =
-  "block pb-1 text-[11px] font-medium uppercase tracking-wider text-zinc-400 dark:text-zinc-500";
-
 function jsonFetch(url: string, method: string, body?: unknown) {
   return fetch(url, {
     method,
@@ -61,18 +65,6 @@ async function api(path: string, method: string, body?: unknown): Promise<{ ok: 
     error?: string;
   };
   return { ok: !!j.ok, error: j.error };
-}
-
-function Section({ title, subtitle, children }: { title: string; subtitle?: string; children: React.ReactNode }) {
-  return (
-    <section className="rounded-lg border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-black">
-      <div className="border-b border-zinc-200 px-4 py-3 dark:border-zinc-800">
-        <h2 className="text-sm font-semibold tracking-tight text-zinc-900 dark:text-zinc-50">{title}</h2>
-        {subtitle && <p className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">{subtitle}</p>}
-      </div>
-      <div className="p-4">{children}</div>
-    </section>
-  );
 }
 
 /** Fetch the full settings bundle. Pure fetch — no component state here. */
@@ -119,8 +111,23 @@ export default function SettingsPage() {
       .catch(() => setError(true));
   };
 
-  if (loading) return <Shell><p className="text-sm text-zinc-500 dark:text-zinc-400">Loading settings…</p></Shell>;
-  if (error || !bundle) return <Shell><p className="text-sm text-zinc-500 dark:text-zinc-400">Settings are unavailable.</p></Shell>;
+  if (loading) {
+    return (
+      <Shell>
+        <EmptyState message="Loading settings…" />
+      </Shell>
+    );
+  }
+  if (error || !bundle) {
+    return (
+      <Shell>
+        <EmptyState
+          title="Settings are unavailable"
+          message="Monitoring continues; only this configuration page could not be loaded."
+        />
+      </Shell>
+    );
+  }
 
   return (
     <Shell>
@@ -128,8 +135,8 @@ export default function SettingsPage() {
         <div
           className={`rounded-md border px-3 py-2 text-sm ${
             notice.kind === "error"
-              ? "border-red-300 bg-red-50 text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300"
-              : "border-emerald-300 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300"
+              ? "border-red-200 bg-red-50 text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300"
+              : "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300"
           }`}
           role="status"
         >
@@ -137,47 +144,51 @@ export default function SettingsPage() {
         </div>
       )}
 
-      <Section title="Sources" subtitle="What DevPulse monitors. Removed sources keep their historical data.">
+      <Panel
+        title="Sources"
+        hint="What DevPulse monitors. Removed sources keep their historical data."
+      >
         <div className="space-y-8">
           <WebsitesSection sites={bundle.websites} onChanged={reload} setNotice={setNotice} />
           <ApisSection apis={bundle.apis} onChanged={reload} setNotice={setNotice} />
           <ReposSection repos={bundle.repositories} onChanged={reload} setNotice={setNotice} />
           <DevicesSection devices={bundle.devices} onChanged={reload} setNotice={setNotice} />
         </div>
-      </Section>
+      </Panel>
 
-      <Section title="Alerts" subtitle="System CPU/memory thresholds used by the alert engine.">
+      <Panel title="Alerts" hint="System CPU/memory thresholds used by the alert engine.">
         <SystemThresholds system={bundle.alerts.system} onChanged={reload} setNotice={setNotice} />
-      </Section>
+      </Panel>
 
-      <Section title="AI budgets" subtitle="Optional 24h budgets. Disabled means no limit is enforced.">
+      <Panel title="AI budgets" hint="Optional 24h budgets. Disabled means no limit is enforced.">
         <AiBudgets ai={bundle.alerts.ai} onChanged={reload} setNotice={setNotice} />
-      </Section>
+      </Panel>
 
-      <Section
+      <Panel
         title="Notifications"
-        subtitle="Local alert notifications. No email, SMS or external service is ever sent."
+        hint="Local alert notifications. No email, SMS or external service is ever sent."
       >
         <NotificationPrefs prefs={bundle.notifications} onChanged={reload} setNotice={setNotice} />
-      </Section>
+      </Panel>
 
-      <Section title="Integrations" subtitle="Credentials are configured via .env.local / environment variables — never stored or edited here.">
+      <Panel
+        title="Integrations"
+        hint="Credentials are configured via .env.local / environment variables — never stored or edited here."
+      >
         <IntegrationsStatus github={bundle.integrations.github} deepseek={bundle.integrations.deepseek} />
-      </Section>
+      </Panel>
     </Shell>
   );
 }
 
 function Shell({ children }: { children: React.ReactNode }) {
   return (
-    <div className="space-y-6 p-4 md:p-6">
-      <div>
-        <h1 className="text-lg font-semibold tracking-tight text-zinc-900 dark:text-zinc-50">Settings</h1>
-        <p className="mt-0.5 text-sm text-zinc-500 dark:text-zinc-400">
-          Monitoring sources and alert thresholds, persisted locally.
-        </p>
-      </div>
-      <div className="space-y-6">{children}</div>
+    <div className={pageCls}>
+      <PageHeader
+        title="Settings"
+        description="Monitoring sources and alert thresholds, persisted locally."
+      />
+      {children}
     </div>
   );
 }
@@ -261,7 +272,7 @@ function WebsitesSection({
 
   return (
     <div>
-      <h3 className="text-[11px] font-medium uppercase tracking-wider text-zinc-400 dark:text-zinc-500">Websites</h3>
+      <h3 className={labelCls}>Websites</h3>
       <div className="mt-2 divide-y divide-zinc-100 dark:divide-zinc-900">
         {sites.length === 0 && <p className="py-2 text-sm text-zinc-400 dark:text-zinc-500">No websites monitored.</p>}
         {sites.map((s) => (
@@ -277,18 +288,15 @@ function WebsitesSection({
 
       {adding ? (
         <div className="mt-3 grid grid-cols-1 gap-3 rounded-md border border-zinc-200 p-3 dark:border-zinc-800 md:grid-cols-[1fr_1.4fr_1fr_auto_auto]">
-          <div>
-            <label className={labelCls}>Name</label>
+          <Field label="Name">
             <input className={inputCls} value={name} onChange={(e) => setName(e.target.value)} placeholder="Production API" />
-          </div>
-          <div>
-            <label className={labelCls}>URL</label>
+          </Field>
+          <Field label="URL">
             <input className={inputCls} value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://api.example.com" />
-          </div>
-          <div>
-            <label className={labelCls}>Expected status</label>
+          </Field>
+          <Field label="Expected status">
             <input className={inputCls} value={expected} onChange={(e) => setExpected(e.target.value)} placeholder="200" inputMode="numeric" />
-          </div>
+          </Field>
           <div className="flex items-end gap-2">
             <button type="button" onClick={add} className={btnPrimary}>Add</button>
             <button type="button" onClick={() => setAdding(false)} className={btnCls}>Cancel</button>
@@ -329,9 +337,9 @@ function WebsiteRow({
   if (editing) {
     return (
       <div className="grid grid-cols-1 gap-3 py-3 md:grid-cols-[1fr_1.4fr_1fr_auto_auto]">
-        <div><label className={labelCls}>Name</label><input className={inputCls} value={name} onChange={(e) => setName(e.target.value)} /></div>
-        <div><label className={labelCls}>URL</label><input className={inputCls} value={url} onChange={(e) => setUrl(e.target.value)} /></div>
-        <div><label className={labelCls}>Expected status</label><input className={inputCls} value={expected} onChange={(e) => setExpected(e.target.value)} /></div>
+        <Field label="Name"><input className={inputCls} value={name} onChange={(e) => setName(e.target.value)} /></Field>
+        <Field label="URL"><input className={inputCls} value={url} onChange={(e) => setUrl(e.target.value)} /></Field>
+        <Field label="Expected status"><input className={inputCls} value={expected} onChange={(e) => setExpected(e.target.value)} /></Field>
         <div className="flex items-end gap-2">
           <button type="button" onClick={save} className={btnPrimary}>Save</button>
           <button type="button" onClick={() => setEditing(false)} className={btnCls}>Cancel</button>
@@ -422,7 +430,7 @@ function ApisSection({
 
   return (
     <div>
-      <h3 className="text-[11px] font-medium uppercase tracking-wider text-zinc-400 dark:text-zinc-500">API endpoints</h3>
+      <h3 className={labelCls}>API endpoints</h3>
       <div className="mt-2 divide-y divide-zinc-100 dark:divide-zinc-900">
         {apis.length === 0 && <p className="py-2 text-sm text-zinc-400 dark:text-zinc-500">No API endpoints monitored.</p>}
         {apis.map((a) => (
@@ -438,30 +446,25 @@ function ApisSection({
 
       {adding ? (
         <div className="mt-3 grid grid-cols-1 gap-3 rounded-md border border-zinc-200 p-3 dark:border-zinc-800 md:grid-cols-[1fr_1.4fr_0.7fr_0.7fr_0.7fr_auto]">
-          <div>
-            <label className={labelCls}>Name</label>
+          <Field label="Name">
             <input className={inputCls} value={name} onChange={(e) => setName(e.target.value)} placeholder="Health endpoint" />
-          </div>
-          <div>
-            <label className={labelCls}>URL</label>
+          </Field>
+          <Field label="URL">
             <input className={inputCls} value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://api.example.com/health" />
-          </div>
-          <div>
-            <label className={labelCls}>Method</label>
+          </Field>
+          <Field label="Method">
             <select className={methodCls} value={method} onChange={(e) => setMethod(e.target.value as ApiMethod)}>
               {API_METHODS.map((m) => (
                 <option key={m} value={m}>{m}</option>
               ))}
             </select>
-          </div>
-          <div>
-            <label className={labelCls}>Expected status</label>
+          </Field>
+          <Field label="Expected status">
             <input className={inputCls} value={expected} onChange={(e) => setExpected(e.target.value)} placeholder="200" inputMode="numeric" />
-          </div>
-          <div>
-            <label className={labelCls}>Timeout (ms)</label>
+          </Field>
+          <Field label="Timeout (ms)">
             <input className={inputCls} value={timeoutMs} onChange={(e) => setTimeoutMs(e.target.value)} placeholder="8000" inputMode="numeric" />
-          </div>
+          </Field>
           <div className="flex items-end gap-2">
             <button type="button" onClick={add} className={btnPrimary}>Add</button>
             <button type="button" onClick={() => setAdding(false)} className={btnCls}>Cancel</button>
@@ -512,18 +515,17 @@ function ApiRow({
   if (editing) {
     return (
       <div className="grid grid-cols-1 gap-3 py-3 md:grid-cols-[1fr_1.4fr_0.7fr_0.7fr_0.7fr_auto]">
-        <div><label className={labelCls}>Name</label><input className={inputCls} value={name} onChange={(e) => setName(e.target.value)} /></div>
-        <div><label className={labelCls}>URL</label><input className={inputCls} value={url} onChange={(e) => setUrl(e.target.value)} /></div>
-        <div>
-          <label className={labelCls}>Method</label>
+        <Field label="Name"><input className={inputCls} value={name} onChange={(e) => setName(e.target.value)} /></Field>
+        <Field label="URL"><input className={inputCls} value={url} onChange={(e) => setUrl(e.target.value)} /></Field>
+        <Field label="Method">
           <select className={methodCls} value={method} onChange={(e) => setMethod(e.target.value as ApiMethod)}>
             {API_METHODS.map((m) => (
               <option key={m} value={m}>{m}</option>
             ))}
           </select>
-        </div>
-        <div><label className={labelCls}>Expected status</label><input className={inputCls} value={expected} onChange={(e) => setExpected(e.target.value)} /></div>
-        <div><label className={labelCls}>Timeout (ms)</label><input className={inputCls} value={timeoutMs} onChange={(e) => setTimeoutMs(e.target.value)} /></div>
+        </Field>
+        <Field label="Expected status"><input className={inputCls} value={expected} onChange={(e) => setExpected(e.target.value)} /></Field>
+        <Field label="Timeout (ms)"><input className={inputCls} value={timeoutMs} onChange={(e) => setTimeoutMs(e.target.value)} /></Field>
         <div className="flex items-end gap-2">
           <button type="button" onClick={save} className={btnPrimary}>Save</button>
           <button type="button" onClick={() => setEditing(false)} className={btnCls}>Cancel</button>
@@ -606,7 +608,7 @@ function ReposSection({
 
   return (
     <div>
-      <h3 className="text-[11px] font-medium uppercase tracking-wider text-zinc-400 dark:text-zinc-500">GitHub repositories</h3>
+      <h3 className={labelCls}>GitHub repositories</h3>
       <div className="mt-2 divide-y divide-zinc-100 dark:divide-zinc-900">
         {repos.length === 0 && <p className="py-2 text-sm text-zinc-400 dark:text-zinc-500">No repositories monitored.</p>}
         {repos.map((r) => (
@@ -622,9 +624,9 @@ function ReposSection({
 
       {adding ? (
         <div className="mt-3 grid grid-cols-1 gap-3 rounded-md border border-zinc-200 p-3 dark:border-zinc-800 md:grid-cols-[1fr_1fr_1.4fr_auto]">
-          <div><label className={labelCls}>Owner</label><input className={inputCls} value={owner} onChange={(e) => setOwner(e.target.value)} placeholder="github-org" /></div>
-          <div><label className={labelCls}>Repository</label><input className={inputCls} value={repo} onChange={(e) => setRepo(e.target.value)} placeholder="repo-name" /></div>
-          <div><label className={labelCls}>Display name</label><input className={inputCls} value={displayName} onChange={(e) => setDisplayName(e.target.value)} placeholder="Optional" /></div>
+          <Field label="Owner"><input className={inputCls} value={owner} onChange={(e) => setOwner(e.target.value)} placeholder="github-org" /></Field>
+          <Field label="Repository"><input className={inputCls} value={repo} onChange={(e) => setRepo(e.target.value)} placeholder="repo-name" /></Field>
+          <Field label="Display name"><input className={inputCls} value={displayName} onChange={(e) => setDisplayName(e.target.value)} placeholder="Optional" /></Field>
           <div className="flex items-end gap-2">
             <button type="button" onClick={add} className={btnPrimary}>Add</button>
             <button type="button" onClick={() => setAdding(false)} className={btnCls}>Cancel</button>
@@ -663,9 +665,9 @@ function RepoRow({
   if (editing) {
     return (
       <div className="grid grid-cols-1 gap-3 py-3 md:grid-cols-[1fr_1fr_1.4fr_auto_auto]">
-        <div><label className={labelCls}>Owner</label><input className={inputCls} value={owner} onChange={(e) => setOwner(e.target.value)} /></div>
-        <div><label className={labelCls}>Repository</label><input className={inputCls} value={repoName} onChange={(e) => setRepoName(e.target.value)} /></div>
-        <div><label className={labelCls}>Display name</label><input className={inputCls} value={displayName} onChange={(e) => setDisplayName(e.target.value)} /></div>
+        <Field label="Owner"><input className={inputCls} value={owner} onChange={(e) => setOwner(e.target.value)} /></Field>
+        <Field label="Repository"><input className={inputCls} value={repoName} onChange={(e) => setRepoName(e.target.value)} /></Field>
+        <Field label="Display name"><input className={inputCls} value={displayName} onChange={(e) => setDisplayName(e.target.value)} /></Field>
         <div className="flex items-end gap-2">
           <button type="button" onClick={save} className={btnPrimary}>Save</button>
           <button type="button" onClick={() => setEditing(false)} className={btnCls}>Cancel</button>
@@ -743,7 +745,7 @@ function DevicesSection({
 
   return (
     <div>
-      <h3 className="text-[11px] font-medium uppercase tracking-wider text-zinc-400 dark:text-zinc-500">Devices</h3>
+      <h3 className={labelCls}>Devices</h3>
       <div className="mt-2 divide-y divide-zinc-100 dark:divide-zinc-900">
         {devices.length === 0 && <p className="py-2 text-sm text-zinc-400 dark:text-zinc-500">No devices monitored.</p>}
         {devices.map((d) => (
@@ -759,22 +761,19 @@ function DevicesSection({
 
       {adding ? (
         <div className="mt-3 grid grid-cols-1 gap-3 rounded-md border border-zinc-200 p-3 dark:border-zinc-800 md:grid-cols-[1fr_1.4fr_0.8fr_auto]">
-          <div>
-            <label className={labelCls}>Name</label>
+          <Field label="Name">
             <input className={inputCls} value={name} onChange={(e) => setName(e.target.value)} placeholder="Build server" />
-          </div>
-          <div>
-            <label className={labelCls}>Host</label>
+          </Field>
+          <Field label="Host">
             <input className={inputCls} value={host} onChange={(e) => setHost(e.target.value)} placeholder="build-01.local or 10.0.0.12" />
-          </div>
-          <div>
-            <label className={labelCls}>Type</label>
+          </Field>
+          <Field label="Type">
             <select className={inputCls} value={type} onChange={(e) => setType(e.target.value as DeviceType)}>
               {DEVICE_TYPES.map((t) => (
                 <option key={t} value={t}>{t}</option>
               ))}
             </select>
-          </div>
+          </Field>
           <div className="flex items-end gap-2">
             <button type="button" onClick={add} className={btnPrimary}>Add</button>
             <button type="button" onClick={() => setAdding(false)} className={btnCls}>Cancel</button>
@@ -785,7 +784,7 @@ function DevicesSection({
           + Add device
         </button>
       )}
-      <p className="mt-2 text-xs text-zinc-400 dark:text-zinc-500">
+      <p className={`mt-2 ${footnoteCls}`}>
         Reachability only. DevPulse sends one bounded ping per device — no credentials, no remote
         commands, no port scanning, no address-range discovery.
       </p>
@@ -825,16 +824,15 @@ function DeviceRow({
     <div className="py-2">
       {editing ? (
         <div className="grid grid-cols-1 gap-3 md:grid-cols-[1fr_1.4fr_0.8fr_auto]">
-          <div><label className={labelCls}>Name</label><input className={inputCls} value={name} onChange={(e) => setName(e.target.value)} /></div>
-          <div><label className={labelCls}>Host</label><input className={inputCls} value={host} onChange={(e) => setHost(e.target.value)} /></div>
-          <div>
-            <label className={labelCls}>Type</label>
+          <Field label="Name"><input className={inputCls} value={name} onChange={(e) => setName(e.target.value)} /></Field>
+          <Field label="Host"><input className={inputCls} value={host} onChange={(e) => setHost(e.target.value)} /></Field>
+          <Field label="Type">
             <select className={inputCls} value={type} onChange={(e) => setType(e.target.value as DeviceType)}>
               {DEVICE_TYPES.map((t) => (
                 <option key={t} value={t}>{t}</option>
               ))}
             </select>
-          </div>
+          </Field>
           <div className="flex items-end gap-2">
             <button type="button" onClick={save} className={btnPrimary}>Save</button>
             <button type="button" onClick={() => setEditing(false)} className={btnCls}>Cancel</button>
@@ -894,10 +892,9 @@ function SystemThresholds({
   };
 
   const field = (label: string, value: string, set: (v: string) => void) => (
-    <div>
-      <label className="block pb-1 text-xs text-zinc-500 dark:text-zinc-400">{label}</label>
+    <Field label={label}>
       <input className={inputCls} value={value} onChange={(e) => set(e.target.value)} inputMode="numeric" />
-    </div>
+    </Field>
   );
 
   return (
@@ -909,7 +906,7 @@ function SystemThresholds({
         {field("Memory critical %", memC, setMemC)}
       </div>
       <div className="mt-3 flex items-center justify-between">
-        <p className="text-xs text-zinc-400 dark:text-zinc-500">
+        <p className={footnoteCls}>
           Sustained above a threshold across the lookback window triggers a warning (critical above the critical value).
         </p>
         <button type="button" onClick={save} className={btnPrimary}>Save thresholds</button>
@@ -963,8 +960,7 @@ function NotificationPrefs({
         onChange={setDesktop}
         label="Show a Windows desktop notification for high-severity alerts"
       />
-      <div className="max-w-xs">
-        <label className={labelCls}>Minimum severity</label>
+      <Field label="Minimum severity" className="max-w-xs">
         <select
           className={inputCls}
           value={minSeverity}
@@ -976,9 +972,9 @@ function NotificationPrefs({
             </option>
           ))}
         </select>
-      </div>
+      </Field>
       <div className="flex items-start justify-between gap-4">
-        <p className="text-xs text-zinc-400 dark:text-zinc-500">
+        <p className={footnoteCls}>
           Alerts below the minimum severity never produce a notification, so informational events
           stay silent. Desktop toasts are Windows-local, shown only for alerts that open or worsen,
           and are best-effort — a toast that fails to appear never affects monitoring. No email,
@@ -1041,7 +1037,7 @@ function AiBudgets({
         {control("Estimated-cost budget", "USD", costEnabled, setCostEnabled, cost, setCost)}
       </div>
       <div className="mt-3 flex items-center justify-between">
-        <p className="text-xs text-zinc-400 dark:text-zinc-500">Disabled budgets enforce no limit.</p>
+        <p className={footnoteCls}>Disabled budgets enforce no limit.</p>
         <button type="button" onClick={save} className={btnPrimary}>Save budgets</button>
       </div>
     </div>
@@ -1056,12 +1052,9 @@ function IntegrationRow({ name, configured }: { name: string; configured: boolea
   return (
     <div className="flex items-center justify-between py-2">
       <span className="text-sm text-zinc-700 dark:text-zinc-200">{name}</span>
-      <span className="inline-flex items-center gap-1.5 text-sm">
-        <span className={`h-2 w-2 rounded-full ${configured ? "bg-emerald-500" : "bg-zinc-300 dark:bg-zinc-600"}`} aria-hidden="true" />
-        <span className={configured ? "text-emerald-600 dark:text-emerald-400" : "text-zinc-500 dark:text-zinc-400"}>
-          {configured ? "Configured" : "Not configured"}
-        </span>
-      </span>
+      <StatusLabel tone={configured ? "good" : "neutral"} className="text-sm">
+        {configured ? "Configured" : "Not configured"}
+      </StatusLabel>
     </div>
   );
 }
@@ -1073,7 +1066,7 @@ function IntegrationsStatus({ github, deepseek }: { github: boolean; deepseek: b
         <IntegrationRow name="GitHub" configured={github} />
         <IntegrationRow name="DeepSeek" configured={deepseek} />
       </div>
-      <p className="mt-2 text-xs text-zinc-400 dark:text-zinc-500">
+      <p className={`mt-2 ${footnoteCls}`}>
         Set GITHUB_TOKEN and DEEPSEEK_API_KEY in <code className="rounded bg-zinc-100 px-1 py-0.5 font-mono dark:bg-zinc-800">.env.local</code> to configure them.
       </p>
     </div>

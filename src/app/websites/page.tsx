@@ -4,21 +4,31 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import type { WebsiteHistory } from "@/app/api/websites/route";
 import type { CheckResult, WebsiteState } from "@/lib/monitoring/websites";
+import {
+  EmptyState,
+  PageHeader,
+  StatTile,
+  StatusLabel,
+  cellMonoCls,
+  cellMutedCls,
+  footnoteCls,
+  metaCls,
+  mutedCls,
+  pageCls,
+  tableCls,
+  tableWrapCls,
+  tdCls,
+  thCls,
+  theadRowCls,
+  trCls,
+  type Tone,
+} from "@/components/ui";
 
 // Refresh cadence. The server additionally guards with a freshness window, so
 // near-simultaneous polls never spawn duplicate checks.
 const REFRESH_MS = 20_000;
 // Below this many stored samples the 24h uptime figure is not yet meaningful.
 const SPARSE_SAMPLES = 10;
-
-type Tone = "good" | "warn" | "critical" | "muted";
-
-const toneDot: Record<Tone, string> = {
-  good: "bg-emerald-500",
-  warn: "bg-amber-500",
-  critical: "bg-red-500",
-  muted: "bg-zinc-300 dark:bg-zinc-600",
-};
 
 const stateTone: Record<WebsiteState, Tone> = {
   healthy: "good",
@@ -50,33 +60,6 @@ function fmtAgo(ts: number) {
   const m = Math.floor(s / 60);
   if (m < 60) return `${m}m ago`;
   return `${Math.floor(m / 60)}h ago`;
-}
-
-function StatTile({
-  label,
-  value,
-  unit,
-  dot,
-}: {
-  label: string;
-  value: string;
-  unit?: string;
-  dot?: Tone;
-}) {
-  return (
-    <div className="rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-black">
-      <p className="text-[11px] font-medium uppercase tracking-wider text-zinc-400 dark:text-zinc-500">
-        {label}
-      </p>
-      <p className="mt-3 flex items-center gap-1.5 font-mono text-2xl font-semibold tracking-tight text-zinc-900 tabular-nums dark:text-zinc-50">
-        {dot && <span className={`h-2 w-2 rounded-full ${toneDot[dot]}`} aria-hidden="true" />}
-        {value}
-        {unit && (
-          <span className="text-sm font-normal text-zinc-400 dark:text-zinc-500">{unit}</span>
-        )}
-      </p>
-    </div>
-  );
 }
 
 export default function WebsitesPage() {
@@ -113,30 +96,30 @@ export default function WebsitesPage() {
 
   let body: React.ReactNode;
   if (up && state === "error") {
-    body = <Empty message="Website monitoring is unavailable." />;
+    body = <EmptyState message="Website monitoring is unavailable." />;
   } else if (!data) {
-    body = <Empty message="Checking targets…" />;
+    body = <EmptyState message="Checking targets…" />;
   } else {
     body = (
       <div className="space-y-4">
         <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
           <StatTile label="Targets" value={String(data.counts.total)} />
-          <StatTile label="Healthy" value={String(data.counts.healthy)} dot="good" />
-          <StatTile label="Degraded" value={String(data.counts.degraded)} dot="warn" />
-          <StatTile label="Down" value={String(data.counts.down)} dot="critical" />
+          <StatTile label="Healthy" value={String(data.counts.healthy)} tone="good" />
+          <StatTile label="Degraded" value={String(data.counts.degraded)} tone="warn" />
+          <StatTile label="Down" value={String(data.counts.down)} tone="critical" />
         </div>
 
-        <div className="overflow-x-auto rounded-lg border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-black">
-          <table className="w-full min-w-[640px] text-left text-sm">
+        <div className={tableWrapCls}>
+          <table className={`${tableCls} min-w-[640px]`}>
             <thead>
-              <tr className="border-b border-zinc-200 text-[11px] uppercase tracking-wider text-zinc-400 dark:border-zinc-800 dark:text-zinc-500">
-                <th className="px-4 py-2.5 font-medium">Service</th>
-                <th className="px-4 py-2.5 font-medium">Host</th>
-                <th className="px-4 py-2.5 font-medium">State</th>
-                <th className="px-4 py-2.5 font-medium">Status</th>
-                <th className="px-4 py-2.5 font-medium">Latency</th>
-                <th className="px-4 py-2.5 font-medium">Checked</th>
-                <th className="px-4 py-2.5 font-medium">24h uptime</th>
+              <tr className={theadRowCls}>
+                <th className={thCls}>Service</th>
+                <th className={thCls}>Host</th>
+                <th className={thCls}>State</th>
+                <th className={thCls}>Status</th>
+                <th className={thCls}>Latency</th>
+                <th className={thCls}>Checked</th>
+                <th className={thCls}>24h uptime</th>
               </tr>
             </thead>
             <tbody>
@@ -150,32 +133,19 @@ export default function WebsitesPage() {
                       ? "n/a"
                       : `${h.uptimePct}%`;
                 return (
-                  <tr
-                    key={r.site.id}
-                    className="border-b border-zinc-100 last:border-0 dark:border-zinc-900"
-                  >
-                    <td className="px-4 py-3 font-medium text-zinc-900 dark:text-zinc-50">
+                  <tr key={r.site.id} className={trCls}>
+                    <td className={`${tdCls} font-medium text-zinc-900 dark:text-zinc-50`}>
                       {r.site.name}
                     </td>
-                    <td className="px-4 py-3 font-mono text-xs text-zinc-500 dark:text-zinc-400">
-                      {r.host ?? "–"}
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className="inline-flex items-center gap-1.5 capitalize text-zinc-700 dark:text-zinc-200">
-                        <span
-                          className={`h-2 w-2 rounded-full ${toneDot[stateTone[r.state]]}`}
-                          aria-hidden="true"
-                        />
+                    <td className={`${tdCls} ${cellMonoCls}`}>{r.host ?? "–"}</td>
+                    <td className={tdCls}>
+                      <StatusLabel tone={stateTone[r.state]} className="capitalize">
                         {r.state}
-                      </span>
+                      </StatusLabel>
                     </td>
-                    <td className="px-4 py-3 font-mono text-xs text-zinc-500 dark:text-zinc-400">
-                      {r.httpStatus ?? "–"}
-                    </td>
-                    <td className="px-4 py-3 font-mono text-xs text-zinc-500 dark:text-zinc-400">
-                      {fmtMs(r.latencyMs)}
-                    </td>
-                    <td className="px-4 py-3 text-xs text-zinc-400 dark:text-zinc-500">
+                    <td className={`${tdCls} ${cellMonoCls}`}>{r.httpStatus ?? "–"}</td>
+                    <td className={`${tdCls} ${cellMonoCls}`}>{fmtMs(r.latencyMs)}</td>
+                    <td className={`${tdCls} ${cellMutedCls}`}>
                       <span className="tabular-nums">{fmtAgo(r.checkedAt)}</span>
                       {r.error && (
                         <p className="mt-0.5 max-w-[220px] truncate text-[11px] text-red-500/80">
@@ -183,7 +153,7 @@ export default function WebsitesPage() {
                         </p>
                       )}
                     </td>
-                    <td className="px-4 py-3">
+                    <td className={tdCls}>
                       <span className="font-mono text-xs tabular-nums text-zinc-600 dark:text-zinc-300">
                         {uptime}
                       </span>
@@ -211,7 +181,7 @@ export default function WebsitesPage() {
         </div>
 
         {data.counts.total === 0 && (
-          <p className="text-sm text-zinc-500 dark:text-zinc-400">
+          <p className={mutedCls}>
             No monitored targets configured. Add websites under{" "}
             <Link href="/settings" className="underline decoration-zinc-300 underline-offset-2 dark:decoration-zinc-700">
               Settings
@@ -220,7 +190,7 @@ export default function WebsitesPage() {
           </p>
         )}
 
-        <p className="text-xs text-zinc-400 dark:text-zinc-500">
+        <p className={footnoteCls}>
           Targets are checked server-side every ~{Math.round(REFRESH_MS / 1000)}s while DevPulse is
           open. Uptime reflects only observed samples; it is not an external service guarantee.
         </p>
@@ -229,31 +199,19 @@ export default function WebsitesPage() {
   }
 
   return (
-    <div className="space-y-6 p-4 md:p-6">
-      <div className="flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <h1 className="text-lg font-semibold tracking-tight text-zinc-900 dark:text-zinc-50">
-            Websites
-          </h1>
-          <p className="mt-0.5 text-sm text-zinc-500 dark:text-zinc-400">
-            Availability and latency for configured external services.
-          </p>
-        </div>
-        {data && (
-          <span className="font-mono text-xs text-zinc-400 dark:text-zinc-500">
-            Updated {new Date(data.generatedAt).toLocaleTimeString()}
-          </span>
-        )}
-      </div>
+    <div className={pageCls}>
+      <PageHeader
+        title="Websites"
+        description="Availability and latency for configured external services."
+        meta={
+          data ? (
+            <span className={metaCls}>
+              Updated {new Date(data.generatedAt).toLocaleTimeString()}
+            </span>
+          ) : null
+        }
+      />
       {body}
-    </div>
-  );
-}
-
-function Empty({ message }: { message: string }) {
-  return (
-    <div className="flex h-40 items-center justify-center rounded-lg border border-zinc-200 bg-white text-sm text-zinc-400 dark:border-zinc-800 dark:bg-black dark:text-zinc-500">
-      {message}
     </div>
   );
 }

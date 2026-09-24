@@ -8,24 +8,33 @@ import type {
   SecurityPosture,
 } from "@/lib/security/model";
 import type { StoredSecurityFinding } from "@/lib/security/storage";
+import {
+  EmptyState,
+  PageHeader,
+  Panel,
+  StatusDot,
+  StatusLabel,
+  cellMonoCls,
+  cellMutedCls,
+  footnoteCls,
+  metaCls,
+  pageCls,
+  tableCls,
+  tdCls,
+  thCls,
+  theadRowCls,
+  trCls,
+  type Tone,
+} from "@/components/ui";
 
 // The scheduler owns the collection cadence (~5m); this only controls how often
 // the page re-reads the collected state.
 const REFRESH_MS = 30_000;
 
-type Tone = "good" | "warn" | "critical" | "muted";
-
-const toneDot: Record<Tone, string> = {
-  good: "bg-emerald-500",
-  warn: "bg-amber-500",
-  critical: "bg-red-500",
-  muted: "bg-zinc-300 dark:bg-zinc-600",
-};
-
 const postureTone: Record<SecurityPosture, Tone> = {
   protected: "good",
   attention: "warn",
-  unknown: "muted",
+  unknown: "neutral",
 };
 
 const postureLabel: Record<SecurityPosture, string> = {
@@ -35,7 +44,7 @@ const postureLabel: Record<SecurityPosture, string> = {
 };
 
 const severityTone: Record<StoredSecurityFinding["severity"], Tone> = {
-  info: "muted",
+  info: "neutral",
   warning: "warn",
   critical: "critical",
 };
@@ -71,14 +80,14 @@ function BoolValue({ value, on, off }: { value: boolean | null; on: string; off:
     return <span className="text-xs text-zinc-400 dark:text-zinc-500">Not reported</span>;
   }
   return (
-    <span className="inline-flex items-center gap-1.5 text-xs text-zinc-700 dark:text-zinc-200">
-      <span className={`h-2 w-2 rounded-full ${toneDot[value ? "good" : "critical"]}`} aria-hidden="true" />
+    <StatusLabel tone={value ? "good" : "critical"} className="text-xs">
       {value ? on : off}
-    </span>
+    </StatusLabel>
   );
 }
 
-function Panel({
+/** A panel whose body is a divided list of rows. */
+function RowPanel({
   title,
   hint,
   children,
@@ -88,13 +97,9 @@ function Panel({
   children: React.ReactNode;
 }) {
   return (
-    <section className="rounded-lg border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-black">
-      <div className="flex items-baseline justify-between gap-4 border-b border-zinc-100 px-4 py-2.5 dark:border-zinc-800/60">
-        <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100">{title}</p>
-        {hint && <p className="text-xs text-zinc-400 dark:text-zinc-500">{hint}</p>}
-      </div>
+    <Panel title={title} hint={hint} padded={false}>
       <div className="divide-y divide-zinc-100 dark:divide-zinc-800/60">{children}</div>
-    </section>
+    </Panel>
   );
 }
 
@@ -112,9 +117,7 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
 function Unavailable({ state }: { state: CapabilityState }) {
   return (
     <div className="px-4 py-3">
-      <p className="text-xs text-zinc-400 dark:text-zinc-500">
-        {state.reason ?? "Not available"}
-      </p>
+      <p className={footnoteCls}>{state.reason ?? "Not available"}</p>
     </div>
   );
 }
@@ -151,12 +154,12 @@ export default function SecurityPage() {
 
   let body: React.ReactNode;
   if (!data && state === "error") {
-    body = <Empty message="Security monitoring is unavailable." />;
+    body = <EmptyState message="Security monitoring is unavailable." />;
   } else if (!data) {
-    body = <Empty message="Reading local security state…" />;
+    body = <EmptyState message="Reading local security state…" />;
   } else if (!data.supported) {
     body = (
-      <Empty
+      <EmptyState
         message={`Local security monitoring is Windows-only — this host reports platform "${data.platform}".`}
       />
     );
@@ -165,22 +168,16 @@ export default function SecurityPage() {
   }
 
   return (
-    <div className="space-y-6 p-4 md:p-6">
-      <div className="flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <h1 className="text-lg font-semibold tracking-tight text-zinc-900 dark:text-zinc-50">
-            Security
-          </h1>
-          <p className="mt-0.5 text-sm text-zinc-500 dark:text-zinc-400">
-            Local firewall, Defender and listening-port observations for this machine.
-          </p>
-        </div>
-        <span className="font-mono text-xs text-zinc-400 dark:text-zinc-500">
-          {data?.lastCheckedAt
-            ? `Checked ${fmtAgo(data.lastCheckedAt)}`
-            : "No observation yet"}
-        </span>
-      </div>
+    <div className={pageCls}>
+      <PageHeader
+        title="Security"
+        description="Local firewall, Defender and listening-port observations for this machine."
+        meta={
+          <span className={metaCls}>
+            {data?.lastCheckedAt ? `Checked ${fmtAgo(data.lastCheckedAt)}` : "No observation yet"}
+          </span>
+        }
+      />
       {body}
     </div>
   );
@@ -192,17 +189,17 @@ function SecurityBody({ data }: { data: SecurityView }) {
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-2 rounded-lg border border-zinc-200 bg-white px-4 py-2.5 dark:border-zinc-800 dark:bg-black">
-        <span className={`h-2 w-2 shrink-0 rounded-full ${toneDot[postureTone[data.posture]]}`} aria-hidden="true" />
+        <StatusDot tone={postureTone[data.posture]} />
         <span className="text-sm text-zinc-700 dark:text-zinc-200">
           {postureLabel[data.posture]}
         </span>
-        <span className="ml-auto text-xs text-zinc-400 dark:text-zinc-500">
+        <span className={`ml-auto ${footnoteCls}`}>
           Reported by the machine itself, not a score
         </span>
       </div>
 
       <div className="grid gap-4 md:grid-cols-2">
-        <Panel
+        <RowPanel
           title="Windows Firewall"
           hint={firewall.available ? `${firewall.profiles.length} profiles` : undefined}
         >
@@ -211,19 +208,15 @@ function SecurityBody({ data }: { data: SecurityView }) {
           ) : (
             firewall.profiles.map((p) => (
               <Row key={p.name} label={p.name}>
-                <span className="inline-flex items-center gap-1.5 text-xs text-zinc-700 dark:text-zinc-200">
-                  <span
-                    className={`h-2 w-2 rounded-full ${toneDot[p.enabled ? "good" : "critical"]}`}
-                    aria-hidden="true"
-                  />
+                <StatusLabel tone={p.enabled ? "good" : "critical"} className="text-xs">
                   {p.enabled ? "Enabled" : "Disabled"}
-                </span>
+                </StatusLabel>
               </Row>
             ))
           )}
-        </Panel>
+        </RowPanel>
 
-        <Panel title="Microsoft Defender">
+        <RowPanel title="Microsoft Defender">
           {!defender.available ? (
             <Unavailable state={defender} />
           ) : (
@@ -251,62 +244,49 @@ function SecurityBody({ data }: { data: SecurityView }) {
               </Row>
             </>
           )}
-        </Panel>
+        </RowPanel>
       </div>
 
-      <section className="rounded-lg border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-black">
-        <div className="flex items-baseline justify-between gap-4 border-b border-zinc-100 px-4 py-2.5 dark:border-zinc-800/60">
-          <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100">
-            Listening ports
-          </p>
-          <p className="text-xs text-zinc-400 dark:text-zinc-500">
-            {ports.available ? `${ports.entries.length} TCP sockets` : "Not available"}
-          </p>
-        </div>
+      <Panel
+        title="Listening ports"
+        hint={ports.available ? `${ports.entries.length} TCP sockets` : "Not available"}
+        padded={false}
+      >
         {!ports.available ? (
           <Unavailable state={ports} />
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[520px] text-left text-sm">
+            <table className={`${tableCls} min-w-[520px]`}>
               <thead>
-                <tr className="border-b border-zinc-200 text-[11px] uppercase tracking-wider text-zinc-400 dark:border-zinc-800 dark:text-zinc-500">
-                  <th className="px-4 py-2 font-medium">Port</th>
-                  <th className="px-4 py-2 font-medium">Address</th>
-                  <th className="px-4 py-2 font-medium">Reach</th>
-                  <th className="px-4 py-2 font-medium">Process</th>
-                  <th className="px-4 py-2 font-medium">PID</th>
+                <tr className={theadRowCls}>
+                  <th className={thCls}>Port</th>
+                  <th className={thCls}>Address</th>
+                  <th className={thCls}>Reach</th>
+                  <th className={thCls}>Process</th>
+                  <th className={thCls}>PID</th>
                 </tr>
               </thead>
               <tbody>
                 {ports.entries.map((p) => (
-                  <tr
-                    key={`${p.address}:${p.port}`}
-                    className="border-b border-zinc-100 last:border-0 dark:border-zinc-900"
-                  >
-                    <td className="px-4 py-2 font-mono text-xs tabular-nums text-zinc-800 dark:text-zinc-100">
+                  <tr key={`${p.address}:${p.port}`} className={trCls}>
+                    <td className={`${tdCls} font-mono text-xs tabular-nums text-zinc-800 dark:text-zinc-100`}>
                       {p.port}
                     </td>
-                    <td className="px-4 py-2 font-mono text-xs text-zinc-500 dark:text-zinc-400">
-                      {p.address}
-                    </td>
-                    <td className="px-4 py-2 text-xs text-zinc-500 dark:text-zinc-400">
-                      {exposureLabel[p.exposure]}
-                    </td>
-                    <td className="px-4 py-2 text-xs text-zinc-600 dark:text-zinc-300">
+                    <td className={`${tdCls} ${cellMonoCls}`}>{p.address}</td>
+                    <td className={`${tdCls} ${cellMutedCls}`}>{exposureLabel[p.exposure]}</td>
+                    <td className={`${tdCls} text-xs text-zinc-600 dark:text-zinc-300`}>
                       {p.process ?? "–"}
                     </td>
-                    <td className="px-4 py-2 font-mono text-xs tabular-nums text-zinc-400 dark:text-zinc-500">
-                      {p.pid ?? "–"}
-                    </td>
+                    <td className={`${tdCls} ${cellMutedCls} tabular-nums`}>{p.pid ?? "–"}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
         )}
-      </section>
+      </Panel>
 
-      <Panel
+      <RowPanel
         title="Findings"
         hint={
           findings.active.length > 0
@@ -316,9 +296,7 @@ function SecurityBody({ data }: { data: SecurityView }) {
       >
         {findings.active.length === 0 && findings.recent.length === 0 ? (
           <div className="px-4 py-3">
-            <p className="text-xs text-zinc-400 dark:text-zinc-500">
-              No security findings observed yet.
-            </p>
+            <p className={footnoteCls}>No security findings observed yet.</p>
           </div>
         ) : (
           <>
@@ -330,9 +308,9 @@ function SecurityBody({ data }: { data: SecurityView }) {
             ))}
           </>
         )}
-      </Panel>
+      </RowPanel>
 
-      <p className="text-xs text-zinc-400 dark:text-zinc-500">
+      <p className={footnoteCls}>
         Read-only local queries (Windows Firewall profile state, Defender status, TCP listeners).
         DevPulse never probes a port, scans a host, inspects traffic or changes any system setting —
         an open port is reported as an observation, not as a threat. Findings change only when the
@@ -352,9 +330,9 @@ function FindingRow({
   const when = resolved ? finding.resolvedAt : finding.firstSeenAt;
   return (
     <div className="flex items-start gap-2.5 px-4 py-2.5">
-      <span
-        className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${toneDot[resolved ? "muted" : severityTone[finding.severity]]}`}
-        aria-hidden="true"
+      <StatusDot
+        tone={resolved ? "neutral" : severityTone[finding.severity]}
+        className="mt-1.5 h-2 w-2"
       />
       <div className="min-w-0 flex-1">
         <p className="text-xs font-medium text-zinc-800 dark:text-zinc-100">
@@ -377,14 +355,6 @@ function FindingRow({
           <p className="text-[11px] text-zinc-400 dark:text-zinc-500">resolved</p>
         )}
       </div>
-    </div>
-  );
-}
-
-function Empty({ message }: { message: string }) {
-  return (
-    <div className="flex h-40 items-center justify-center rounded-lg border border-zinc-200 bg-white px-6 text-center text-sm text-zinc-400 dark:border-zinc-800 dark:bg-black dark:text-zinc-500">
-      {message}
     </div>
   );
 }

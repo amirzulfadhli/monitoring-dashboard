@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import type { ProjectHealthState, ProjectSummary } from "@/lib/projects/types";
+import { Panel, StatusDot, toneText, type Tone } from "@/components/ui";
 
 /**
  * Compact project health for the Overview: how many projects exist and how they
@@ -16,18 +17,19 @@ import type { ProjectHealthState, ProjectSummary } from "@/lib/projects/types";
 
 const REFRESH_MS = 30_000;
 
-const stateTone: Record<ProjectHealthState, string> = {
-  healthy: "text-emerald-600 dark:text-emerald-400",
-  degraded: "text-amber-600 dark:text-amber-400",
-  critical: "text-red-600 dark:text-red-400",
-  unknown: "text-zinc-400 dark:text-zinc-500",
+/** Project health reuses the shared tones, so a state reads the same everywhere. */
+const stateTone: Record<ProjectHealthState, Tone> = {
+  healthy: "good",
+  degraded: "warn",
+  critical: "critical",
+  unknown: "neutral",
 };
 
-const stateDot: Record<ProjectHealthState, string> = {
-  healthy: "bg-emerald-500",
-  degraded: "bg-amber-500",
-  critical: "bg-red-500",
-  unknown: "bg-zinc-300 dark:bg-zinc-600",
+const stateText: Record<ProjectHealthState, string> = {
+  healthy: toneText.good,
+  degraded: toneText.warn,
+  critical: toneText.critical,
+  unknown: "text-zinc-400 dark:text-zinc-500",
 };
 
 /** Fixed order, so the row never reshuffles as counts change. */
@@ -77,27 +79,28 @@ export function ProjectsSummary() {
   for (const p of projects) counts[p.health.state]++;
 
   return (
-    <section className="rounded-lg border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-black">
-      <div className="flex items-baseline justify-between gap-4 border-b border-zinc-100 px-4 py-3 dark:border-zinc-800/60">
-        <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100">Projects</p>
+    <Panel
+      title="Projects"
+      hint={
         <Link
           href="/projects"
-          className="text-xs text-zinc-500 underline decoration-zinc-300 underline-offset-2 dark:text-zinc-400 dark:decoration-zinc-700"
+          className="underline decoration-zinc-300 underline-offset-2 dark:decoration-zinc-700"
         >
           {projects.length} {projects.length === 1 ? "project" : "projects"}
         </Link>
-      </div>
-      <div className="flex flex-wrap items-center gap-x-5 gap-y-2 px-4 py-3">
+      }
+    >
+      <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
         {STATES.map((state) => (
           <span key={state} className="flex items-center gap-1.5">
-            <span className={`h-1.5 w-1.5 rounded-full ${stateDot[state]}`} aria-hidden="true" />
-            <span className={`font-mono text-xs tabular-nums ${stateTone[state]}`}>
+            <StatusDot tone={stateTone[state]} className="h-1.5 w-1.5" />
+            <span className={`font-mono text-xs tabular-nums ${stateText[state]}`}>
               {counts[state]}
             </span>
             <span className="text-xs text-zinc-500 dark:text-zinc-400">{LABELS[state]}</span>
           </span>
         ))}
       </div>
-    </section>
+    </Panel>
   );
 }

@@ -1,24 +1,36 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import type { AlertCounts, AlertRecord, Severity } from "@/lib/alerts/model";
+import type { AlertCounts, AlertRecord } from "@/lib/alerts/model";
+import {
+  EmptyState,
+  PageHeader,
+  StatTile,
+  StatusLabel,
+  btnSmall,
+  cellMonoCls,
+  cellMutedCls,
+  footnoteCls,
+  labelCls,
+  mutedCls,
+  pageCls,
+  severityTone,
+  tabCls,
+  tableCls,
+  tableWrapCls,
+  tdCls,
+  thCls,
+  theadRowCls,
+  toneText,
+  trCls,
+  type Tone,
+} from "@/components/ui";
 
 // Poll ~30s to match the engine's guarded evaluation cadence; each request
 // evaluates at most once per interval and otherwise serves stored state.
 const REFRESH_MS = 30_000;
 
 type View = "active" | "history";
-
-const sevDot: Record<Severity, string> = {
-  critical: "bg-red-500",
-  warning: "bg-amber-500",
-  info: "bg-sky-500",
-};
-const sevText: Record<Severity, string> = {
-  critical: "text-red-600 dark:text-red-400",
-  warning: "text-amber-600 dark:text-amber-400",
-  info: "text-sky-600 dark:text-sky-400",
-};
 
 const sourceLabel: Record<string, string> = {
   system: "System",
@@ -29,28 +41,6 @@ const sourceLabel: Record<string, string> = {
 };
 
 type Api = { status: View; counts: AlertCounts; alerts: AlertRecord[] };
-
-function StatTile({
-  label,
-  value,
-  dot,
-}: {
-  label: string;
-  value: string;
-  dot?: Severity;
-}) {
-  return (
-    <div className="rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-black">
-      <p className="text-[11px] font-medium uppercase tracking-wider text-zinc-400 dark:text-zinc-500">
-        {label}
-      </p>
-      <p className="mt-3 flex items-center gap-1.5 font-mono text-2xl font-semibold tracking-tight text-zinc-900 tabular-nums dark:text-zinc-50">
-        {dot && <span className={`h-2 w-2 rounded-full ${sevDot[dot]}`} aria-hidden="true" />}
-        {value}
-      </p>
-    </div>
-  );
-}
 
 function fmtWhen(ts: number) {
   return new Date(ts).toLocaleString(undefined, {
@@ -96,17 +86,9 @@ export default function AlertsPage() {
 
   let body: React.ReactNode;
   if (state === "error" && !data) {
-    body = (
-      <div className="flex h-40 items-center justify-center rounded-lg border border-zinc-200 bg-white text-sm text-zinc-400 dark:border-zinc-800 dark:bg-black dark:text-zinc-500">
-        Alerts are temporarily unavailable.
-      </div>
-    );
+    body = <EmptyState message="Alerts are temporarily unavailable." />;
   } else if (!data) {
-    body = (
-      <div className="flex h-40 items-center justify-center rounded-lg border border-zinc-200 bg-white text-sm text-zinc-400 dark:border-zinc-800 dark:bg-black dark:text-zinc-500">
-        Loading alerts…
-      </div>
-    );
+    body = <EmptyState message="Loading alerts…" />;
   } else {
     const alerts = data.alerts;
     body = (
@@ -114,8 +96,8 @@ export default function AlertsPage() {
         {counts && (
           <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
             <StatTile label="Active" value={String(counts.active)} />
-            <StatTile label="Critical" value={String(counts.critical)} dot="critical" />
-            <StatTile label="Warning" value={String(counts.warning)} dot="warning" />
+            <StatTile label="Critical" value={String(counts.critical)} tone="critical" />
+            <StatTile label="Warning" value={String(counts.warning)} tone="warn" />
             <StatTile label="Resolved recent" value={String(counts.resolvedRecent)} />
           </div>
         )}
@@ -132,11 +114,8 @@ export default function AlertsPage() {
               <button
                 key={t.key}
                 onClick={() => setView(t.key)}
-                className={`rounded-md px-3 py-1.5 text-[13px] font-medium transition-colors ${
-                  on
-                    ? "bg-zinc-900 text-zinc-50 dark:bg-zinc-100 dark:text-zinc-900"
-                    : "text-zinc-500 hover:bg-zinc-100 hover:text-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-800/60 dark:hover:text-zinc-200"
-                }`}
+                aria-pressed={on}
+                className={tabCls(on)}
               >
                 {t.label}
               </button>
@@ -145,25 +124,27 @@ export default function AlertsPage() {
         </div>
 
         {alerts.length === 0 ? (
-          <div className="flex h-32 items-center justify-center rounded-lg border border-zinc-200 bg-white text-sm text-zinc-400 dark:border-zinc-800 dark:bg-black dark:text-zinc-500">
-            {view === "active"
-              ? "No active alerts. Everything is within thresholds."
-              : "No recently resolved alerts."}
-          </div>
+          <EmptyState
+            message={
+              view === "active"
+                ? "No active alerts. Everything is within thresholds."
+                : "No recently resolved alerts."
+            }
+          />
         ) : (
-          <div className="overflow-x-auto rounded-lg border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-black">
-            <table className="w-full min-w-[760px] text-left text-sm">
+          <div className={tableWrapCls}>
+            <table className={`${tableCls} min-w-[760px]`}>
               <thead>
-                <tr className="border-b border-zinc-200 text-[11px] uppercase tracking-wider text-zinc-400 dark:border-zinc-800 dark:text-zinc-500">
-                  <th className="px-4 py-2.5 font-medium">Severity</th>
-                  <th className="px-4 py-2.5 font-medium">Source</th>
-                  <th className="px-4 py-2.5 font-medium">Alert</th>
-                  <th className="px-4 py-2.5 font-medium">Message</th>
-                  <th className="px-4 py-2.5 font-medium">First seen</th>
-                  <th className="px-4 py-2.5 font-medium">
+                <tr className={theadRowCls}>
+                  <th className={thCls}>Severity</th>
+                  <th className={thCls}>Source</th>
+                  <th className={thCls}>Alert</th>
+                  <th className={thCls}>Message</th>
+                  <th className={thCls}>First seen</th>
+                  <th className={thCls}>
                     {view === "history" ? "Resolved" : "Last seen"}
                   </th>
-                  <th className="px-4 py-2.5" aria-label="Explain" />
+                  <th className={thCls} aria-label="Explain" />
                 </tr>
               </thead>
               <tbody>
@@ -175,7 +156,7 @@ export default function AlertsPage() {
           </div>
         )}
 
-        <p className="text-xs text-zinc-400 dark:text-zinc-500">
+        <p className={footnoteCls}>
           Alerts are derived deterministically from DevPulse&apos;s own monitoring signals and
           evaluated on a modest cadence — no external notifications are sent.
         </p>
@@ -184,16 +165,11 @@ export default function AlertsPage() {
   }
 
   return (
-    <div className="space-y-6 p-4 md:p-6">
-      <div>
-        <h1 className="text-lg font-semibold tracking-tight text-zinc-900 dark:text-zinc-50">
-          Alerts
-        </h1>
-        <p className="mt-0.5 text-sm text-zinc-500 dark:text-zinc-400">
-          Thresholds applied to live monitoring signals — CPU, memory, websites, GitHub CI and AI
-          usage.
-        </p>
-      </div>
+    <div className={pageCls}>
+      <PageHeader
+        title="Alerts"
+        description="Thresholds applied to live monitoring signals — CPU, memory, websites, GitHub CI and AI usage."
+      />
       {body}
     </div>
   );
@@ -218,10 +194,10 @@ type ExplainOk = {
 };
 type ExplainErr = { ok: false; reason: string; message: string };
 
-const confTone: Record<ExplainPanel["confidence"], string> = {
-  low: "text-zinc-500 dark:text-zinc-400",
-  medium: "text-amber-600 dark:text-amber-400",
-  high: "text-emerald-600 dark:text-emerald-400",
+const confTone: Record<ExplainPanel["confidence"], Tone> = {
+  low: "neutral",
+  medium: "warn",
+  high: "good",
 };
 
 function ExplainRow({ a }: { a: AlertRecord }) {
@@ -263,57 +239,48 @@ function ExplainRow({ a }: { a: AlertRecord }) {
 
   return (
     <>
-      <tr className="border-b border-zinc-100 last:border-0 dark:border-zinc-900">
-        <td className="px-4 py-3">
-          <span className={`inline-flex items-center gap-1.5 capitalize text-xs ${sevText[a.severity]}`}>
-            <span className={`h-2 w-2 rounded-full ${sevDot[a.severity]}`} aria-hidden="true" />
+      <tr className={trCls}>
+        <td className={tdCls}>
+          <StatusLabel tone={severityTone[a.severity]} className="text-xs capitalize">
             {a.severity}
-          </span>
+          </StatusLabel>
         </td>
-        <td className="px-4 py-3 text-xs capitalize text-zinc-500 dark:text-zinc-400">
+        <td className={`${tdCls} ${cellMutedCls} capitalize`}>
           {sourceLabel[a.source] ?? a.source}
         </td>
-        <td className="px-4 py-3 font-medium text-zinc-900 dark:text-zinc-50">{a.title}</td>
-        <td className="max-w-[320px] truncate px-4 py-3 text-xs text-zinc-500 dark:text-zinc-400" title={a.message}>
+        <td className={`${tdCls} font-medium text-zinc-900 dark:text-zinc-50`}>{a.title}</td>
+        <td className={`max-w-[320px] truncate ${tdCls} ${cellMutedCls}`} title={a.message}>
           {a.message}
         </td>
-        <td className="px-4 py-3 font-mono text-xs text-zinc-400 dark:text-zinc-500">
-          {fmtWhen(a.firstSeenAt)}
-        </td>
-        <td className="px-4 py-3 font-mono text-xs text-zinc-400 dark:text-zinc-500">
+        <td className={`${tdCls} ${cellMonoCls}`}>{fmtWhen(a.firstSeenAt)}</td>
+        <td className={`${tdCls} ${cellMonoCls}`}>
           {a.resolvedAt != null ? fmtWhen(a.resolvedAt) : fmtWhen(a.lastSeenAt)}
         </td>
-        <td className="px-4 py-3 text-right">
-          <button
-            onClick={explain}
-            disabled={busy}
-            className="rounded border border-zinc-200 px-2 py-1 text-[11px] font-medium text-zinc-500 hover:bg-zinc-100 hover:text-zinc-800 disabled:opacity-50 dark:border-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-800/60 dark:hover:text-zinc-200"
-          >
+        <td className={`${tdCls} text-right`}>
+          <button onClick={explain} disabled={busy} className={btnSmall}>
             {busy ? "Explaining…" : "Explain"}
           </button>
         </td>
       </tr>
       {(panel || error || busy) && (
         <tr className="border-b border-zinc-100 bg-zinc-50/50 last:border-0 dark:border-zinc-900 dark:bg-zinc-900/30">
-          <td colSpan={7} className="px-4 py-3">
+          <td colSpan={7} className={`${tdCls} text-xs text-zinc-500 dark:text-zinc-400`} aria-live="polite">
             {busy && !panel ? (
-              <p className="text-xs text-zinc-400 dark:text-zinc-500">Analyzing nearby DevPulse evidence…</p>
+              <p className={footnoteCls}>Analyzing nearby DevPulse evidence…</p>
             ) : panel ? (
-              <div className="space-y-2 text-sm">
+              <div className="space-y-2">
                 <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                  <p className="text-[11px] uppercase tracking-wider text-zinc-400 dark:text-zinc-500">
-                    AI-generated · grounded in DevPulse evidence
-                  </p>
+                  <p className={labelCls}>AI-generated · grounded in DevPulse evidence</p>
                   {meta && (
-                    <p className="text-[11px] text-zinc-400 dark:text-zinc-500">
+                    <p className={footnoteCls}>
                       {fmtWhen(meta.createdAt)}
                       {meta.cached ? " · cached" : ""}
                       {meta.model ? ` · ${meta.model}` : ""}
                     </p>
                   )}
                 </div>
-                <p className="text-xs text-zinc-500 dark:text-zinc-400">
-                  <span className={`font-semibold capitalize ${confTone[panel.confidence]}`}>
+                <p className={mutedCls}>
+                  <span className={`font-semibold capitalize ${toneText[confTone[panel.confidence]]}`}>
                     {panel.confidence} confidence
                   </span>{" "}
                   — {panel.summary}
@@ -326,12 +293,10 @@ function ExplainRow({ a }: { a: AlertRecord }) {
                 )}
                 {panel.evidence.length > 0 && (
                   <div>
-                    <p className="mb-1 text-[11px] font-medium uppercase tracking-wider text-zinc-400 dark:text-zinc-500">
-                      Supporting evidence
-                    </p>
+                    <p className={`mb-1 ${labelCls}`}>Supporting evidence</p>
                     <ul className="space-y-1">
                       {panel.evidence.map((e, i) => (
-                        <li key={i} className="text-xs text-zinc-500 dark:text-zinc-400">
+                        <li key={i} className={mutedCls}>
                           <span className="font-mono text-[11px] text-zinc-400 dark:text-zinc-500">
                             {e.eventId}
                           </span>{" "}
@@ -343,9 +308,7 @@ function ExplainRow({ a }: { a: AlertRecord }) {
                 )}
                 {panel.checks.length > 0 && (
                   <div>
-                    <p className="mb-1 text-[11px] font-medium uppercase tracking-wider text-zinc-400 dark:text-zinc-500">
-                      Recommended checks
-                    </p>
+                    <p className={`mb-1 ${labelCls}`}>Recommended checks</p>
                     <ul className="list-disc space-y-0.5 pl-4 text-xs text-zinc-600 dark:text-zinc-400">
                       {panel.checks.map((c, i) => (
                         <li key={i}>{c}</li>

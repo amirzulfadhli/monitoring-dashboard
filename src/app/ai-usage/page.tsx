@@ -1,6 +1,24 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import {
+  EmptyState,
+  PageHeader,
+  Panel,
+  StatTile,
+  cellMonoCls,
+  cellMutedCls,
+  footnoteCls,
+  metaCls,
+  mutedCls,
+  pageCls,
+  tabCls,
+  tableCls,
+  tdCls,
+  thCls,
+  theadRowCls,
+  trCls,
+} from "@/components/ui";
 
 const REFRESH_MS = 15_000;
 
@@ -89,19 +107,6 @@ function fmtUsd(v: number | null | undefined): string {
   return `$${v.toFixed(6)}`;
 }
 
-function StatTile({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-black">
-      <p className="text-[11px] font-medium uppercase tracking-wider text-zinc-400 dark:text-zinc-500">
-        {label}
-      </p>
-      <p className="mt-3 font-mono text-xl font-semibold tracking-tight text-zinc-900 tabular-nums dark:text-zinc-50">
-        {value}
-      </p>
-    </div>
-  );
-}
-
 const W = 600;
 const H = 150;
 const PAD = 8;
@@ -122,9 +127,9 @@ function UsageChart({ buckets, unit }: { buckets: TimeBucket[]; unit: string }) 
 
   return (
     <div>
-      <div className="mb-2 flex items-center justify-between text-xs text-zinc-500 dark:text-zinc-400">
+      <div className={`mb-2 flex items-center justify-between ${mutedCls}`}>
         <span>tokens per interval</span>
-        <span className="font-mono">{unit}</span>
+        <span className={metaCls}>{unit}</span>
       </div>
       <svg
         viewBox={`0 0 ${W} ${H}`}
@@ -138,7 +143,7 @@ function UsageChart({ buckets, unit }: { buckets: TimeBucket[]; unit: string }) 
           <circle cx={PAD} cy={H - PAD} r="2" fill="currentColor" />
         )}
       </svg>
-      <div className="mt-1 flex justify-between font-mono text-[10px] text-zinc-400 dark:text-zinc-500">
+      <div className={`mt-1 flex justify-between ${footnoteCls}`}>
         <span>{new Date(data[0].ts).toLocaleString()}</span>
         <span>{new Date(data[data.length - 1].ts).toLocaleString()}</span>
       </div>
@@ -169,61 +174,44 @@ function UsageTable({
 }) {
   const meta = SOURCE_META[source];
   return (
-    <section className="rounded-lg border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-black">
-      <div className="flex items-center justify-between border-b border-zinc-100 px-4 py-3 dark:border-zinc-800/60">
-        <div>
-          <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100">{meta.title}</p>
-          <p className="mt-0.5 text-[11px] text-zinc-400 dark:text-zinc-500">{meta.blurb}</p>
-        </div>
-        <span className="text-[11px] uppercase tracking-wider text-zinc-400 dark:text-zinc-500">
-          DeepSeek · V1
-        </span>
-      </div>
+    <Panel title={meta.title} hint={meta.blurb} padded={false}>
       <div className="overflow-x-auto">
-        <table className="w-full text-left text-xs">
+        <table className={`${tableCls} text-xs`}>
           <thead>
-            <tr className="border-b border-zinc-100 text-[11px] uppercase tracking-wider text-zinc-400 dark:border-zinc-800/60 dark:text-zinc-500">
-              <th className="px-4 py-2 font-medium">Model</th>
-              <th className="px-4 py-2 text-right font-medium">Requests</th>
-              <th className="px-4 py-2 text-right font-medium">Input</th>
-              <th className="px-4 py-2 text-right font-medium">Output</th>
-              <th className="px-4 py-2 text-right font-medium">Thinking</th>
-              <th className="px-4 py-2 text-right font-medium">Total</th>
-              <th className="px-4 py-2 text-right font-medium">Failures</th>
-              <th className="px-4 py-2 text-right font-medium">Latency</th>
-              <th className="px-4 py-2 text-right font-medium">Est. cost</th>
+            <tr className={theadRowCls}>
+              <th className={thCls}>Model</th>
+              <th className={`${thCls} text-right`}>Requests</th>
+              <th className={`${thCls} text-right`}>Input</th>
+              <th className={`${thCls} text-right`}>Output</th>
+              <th className={`${thCls} text-right`}>Thinking</th>
+              <th className={`${thCls} text-right`}>Total</th>
+              <th className={`${thCls} text-right`}>Failures</th>
+              <th className={`${thCls} text-right`}>Latency</th>
+              <th className={`${thCls} text-right`}>Est. cost</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-zinc-100 font-mono tabular-nums dark:divide-zinc-800/60">
+          <tbody className="font-mono tabular-nums">
             {rows.map((m) => (
-              <tr key={`${m.source}:${m.model}`}>
-                <td className="px-4 py-2 text-zinc-900 dark:text-zinc-100">{m.model}</td>
-                <td className="px-4 py-2 text-right text-zinc-500 dark:text-zinc-400">
-                  {m.requests}
-                </td>
-                <td className="px-4 py-2 text-right text-zinc-500 dark:text-zinc-400">
-                  {fmtTokens(m.inputTokens)}
-                </td>
-                <td className="px-4 py-2 text-right text-zinc-500 dark:text-zinc-400">
-                  {fmtTokens(m.outputTokens)}
-                </td>
-                <td className="px-4 py-2 text-right text-zinc-400 dark:text-zinc-600">
+              <tr key={`${m.source}:${m.model}`} className={trCls}>
+                <td className={`${tdCls} text-zinc-900 dark:text-zinc-100`}>{m.model}</td>
+                <td className={`${tdCls} text-right ${cellMonoCls}`}>{m.requests}</td>
+                <td className={`${tdCls} text-right ${cellMonoCls}`}>{fmtTokens(m.inputTokens)}</td>
+                <td className={`${tdCls} text-right ${cellMonoCls}`}>{fmtTokens(m.outputTokens)}</td>
+                <td className={`${tdCls} text-right ${cellMutedCls}`}>
                   {m.thinkingTokens > 0 ? fmtTokens(m.thinkingTokens) : "–"}
                 </td>
-                <td className="px-4 py-2 text-right text-zinc-900 dark:text-zinc-100">
+                <td className={`${tdCls} text-right text-zinc-900 dark:text-zinc-100`}>
                   {fmtTokens(m.totalTokens)}
                 </td>
-                <td className="px-4 py-2 text-right">
+                <td className={`${tdCls} text-right`}>
                   {m.failures > 0 ? (
                     <span className="text-red-600 dark:text-red-400">{m.failures}</span>
                   ) : (
-                    <span className="text-zinc-400 dark:text-zinc-600">0</span>
+                    <span className="text-zinc-400 dark:text-zinc-500">0</span>
                   )}
                 </td>
-                <td className="px-4 py-2 text-right text-zinc-500 dark:text-zinc-400">
-                  {fmtMs(m.avgLatencyMs)}
-                </td>
-                <td className="px-4 py-2 text-right text-zinc-500 dark:text-zinc-400">
+                <td className={`${tdCls} text-right ${cellMonoCls}`}>{fmtMs(m.avgLatencyMs)}</td>
+                <td className={`${tdCls} text-right ${cellMonoCls}`}>
                   {fmtUsd(m.estimatedCostUsd)}
                 </td>
               </tr>
@@ -232,26 +220,15 @@ function UsageTable({
         </table>
       </div>
       {source === "claude-code" ? (
-        <div className="border-t border-zinc-100 px-4 py-2.5 text-[11px] leading-relaxed text-zinc-400 dark:border-zinc-800/60 dark:text-zinc-500">
-          Token counts are the provider-returned usage metadata in the local transcript; latency is
-          not available for ingested requests; cache accounting via the Anthropic-compatible bridge
-          is not treated as authoritative; cost is estimated, not provider billing.
+        <div className="border-t border-zinc-100 px-4 py-3 dark:border-zinc-800/60">
+          <p className={footnoteCls}>
+            Token counts are the provider-returned usage metadata in the local transcript; latency
+            is not available for ingested requests; cache accounting via the Anthropic-compatible
+            bridge is not treated as authoritative; cost is estimated, not provider billing.
+          </p>
         </div>
       ) : null}
-    </section>
-  );
-}
-
-function EmptyNote() {
-  return (
-    <div className="rounded-lg border border-dashed border-zinc-300 bg-white px-4 py-8 text-center dark:border-zinc-700 dark:bg-black">
-      <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100">No AI usage recorded</p>
-      <p className="mx-auto mt-2 max-w-md text-xs leading-relaxed text-zinc-500 dark:text-zinc-400">
-        Usage records requests made through DevPulse&apos;s DeepSeek wrapper and, when available,
-        DeepSeek usage Claude Code reports in this project&apos;s local transcripts. No fabricated
-        figures are shown — this page reports real instrumented usage only.
-      </p>
-    </div>
+    </Panel>
   );
 }
 
@@ -309,45 +286,37 @@ export default function AiUsagePage() {
   const ccIngest = summary?.claudeCodeIngest;
 
   return (
-    <div className="space-y-6 p-4 md:p-6">
-      <div className="flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <h1 className="text-lg font-semibold tracking-tight text-zinc-900 dark:text-zinc-50">
-            AI Usage
-          </h1>
-          <p className="mt-0.5 text-sm text-zinc-500 dark:text-zinc-400">
-            Model token consumption and estimated cost — direct DeepSeek calls and Claude Code.
-          </p>
-        </div>
-        <div className="flex items-center rounded-md border border-zinc-200 bg-white p-0.5 text-xs dark:border-zinc-800 dark:bg-black">
-          {WINDOW_KEYS.map((r) => (
-            <button
-              key={r}
-              type="button"
-              onClick={() => setRange(r)}
-              aria-pressed={r === range}
-              className={
-                r === range
-                  ? "rounded bg-zinc-900 px-2.5 py-1 font-medium text-zinc-50 dark:bg-zinc-100 dark:text-zinc-900"
-                  : "cursor-pointer rounded px-2.5 py-1 text-zinc-500 transition-colors hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
-              }
-            >
-              {r}
-            </button>
-          ))}
-        </div>
-      </div>
+    <div className={pageCls}>
+      <PageHeader
+        title="AI Usage"
+        description="Model token consumption and estimated cost — direct DeepSeek calls and Claude Code."
+        meta={
+          <div className="flex flex-wrap items-center gap-1">
+            {WINDOW_KEYS.map((r) => (
+              <button
+                key={r}
+                type="button"
+                onClick={() => setRange(r)}
+                aria-pressed={r === range}
+                className={tabCls(r === range)}
+              >
+                {r}
+              </button>
+            ))}
+          </div>
+        }
+      />
 
       {/* Scope / accuracy notes — concise, not visually dominant. */}
-      <div className="rounded-lg border border-zinc-200 bg-white px-4 py-3 text-xs leading-relaxed text-zinc-500 dark:border-zinc-800 dark:bg-black dark:text-zinc-400">
-        <p>
+      <div className="rounded-lg border border-zinc-200 bg-white px-4 py-3 dark:border-zinc-800 dark:bg-black">
+        <p className={footnoteCls}>
           Direct usage is captured by DevPulse&apos;s DeepSeek wrapper. Claude Code usage is read
           from this project&apos;s local transcripts and is best-effort: cache accounting through the
           bridge is not authoritative, cost is estimated (not provider billing), and latency is
           unavailable for ingested requests.
         </p>
         {ccIngest && !ccIngest.throttled && ccIngest.ok && ccIngest.dirFound ? (
-          <p className="mt-1.5 text-[11px] text-zinc-400 dark:text-zinc-500">
+          <p className={`mt-1.5 ${footnoteCls}`}>
             Claude Code transcript scan: {ccIngest.filesScanned} file(s) read,{" "}
             {ccIngest.insertedRows} new row(s) ingested.
           </p>
@@ -361,15 +330,14 @@ export default function AiUsagePage() {
       </div>
 
       {state === "error" ? (
-        <div className="rounded-lg border border-zinc-200 bg-white px-4 py-8 text-center text-xs text-zinc-400 dark:border-zinc-800 dark:bg-black dark:text-zinc-600">
-          Usage history is currently unavailable.
-        </div>
+        <EmptyState message="Usage history is currently unavailable." />
       ) : state === "loading" ? (
-        <div className="rounded-lg border border-zinc-200 bg-white px-4 py-8 text-center text-xs text-zinc-400 dark:border-zinc-800 dark:bg-black dark:text-zinc-600">
-          Loading usage…
-        </div>
+        <EmptyState message="Loading usage…" />
       ) : !hasData ? (
-        <EmptyNote />
+        <EmptyState
+          title="No AI usage recorded"
+          message="Usage records requests made through DevPulse's DeepSeek wrapper and, when available, DeepSeek usage Claude Code reports in this project's local transcripts. No fabricated figures are shown — this page reports real instrumented usage only."
+        />
       ) : summary ? (
         <>
           {presentSources.map((source) => (
@@ -380,16 +348,13 @@ export default function AiUsagePage() {
             />
           ))}
 
-          <section className="rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-black">
-            <p className="mb-4 text-sm font-medium text-zinc-900 dark:text-zinc-100">
-              Usage over time
-            </p>
+          <Panel title="Usage over time">
             {summary.overTime.some((b) => b.requests > 0) ? (
               <UsageChart buckets={summary.overTime} unit="tokens" />
             ) : (
-              <p className="text-xs text-zinc-400 dark:text-zinc-600">No interval has recorded usage in this window.</p>
+              <p className={footnoteCls}>No interval has recorded usage in this window.</p>
             )}
-          </section>
+          </Panel>
         </>
       ) : null}
     </div>

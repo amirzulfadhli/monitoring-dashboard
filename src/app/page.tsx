@@ -7,22 +7,22 @@ import { useMonitoringStatus } from "@/lib/use-monitoring-status";
 import { IntelligencePanel } from "@/components/intelligence-panel";
 import { CollectorHealth } from "@/components/collector-health";
 import { ProjectsSummary } from "@/components/projects-summary";
+import {
+  Panel,
+  StatTile,
+  StatusBadge,
+  StatusLabel,
+  footnoteCls,
+  metaCls,
+  pageCls,
+  pageTitleCls,
+  toneText,
+  type Tone,
+} from "@/components/ui";
 
 const REFRESH_MS = 4000; // live telemetry poll (~3–5s requested)
 const WARN_PCT = 90; // CPU or memory % at/above this flags a Warning status
 const LIMITED_POINTS = 20; // below this many 24h samples, note sparse history
-
-type Tone = "good" | "warn" | "critical";
-const toneDot: Record<Tone, string> = {
-  good: "bg-emerald-500",
-  warn: "bg-amber-500",
-  critical: "bg-red-500",
-};
-const toneText: Record<Tone, string> = {
-  good: "text-emerald-600 dark:text-emerald-400",
-  warn: "text-amber-600 dark:text-amber-400",
-  critical: "text-red-600 dark:text-red-400",
-};
 
 // Aggregate returned by /api/telemetry/summary over the last 24 hours.
 type HistorySummary = {
@@ -76,44 +76,10 @@ function fmtUptime(sec: number | null): string {
   return `${m}m`;
 }
 
-/** A muted small stat: label over a mono value (used for metrics & summaries). */
-function StatTile({
-  label,
-  value,
-  unit,
-  dot,
-  foot,
-}: {
-  label: string;
-  value: string;
-  unit?: string;
-  dot?: Tone;
-  foot?: string;
-}) {
-  return (
-    <div className="rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-black">
-      <p className="text-[11px] font-medium uppercase tracking-wider text-zinc-400 dark:text-zinc-500">
-        {label}
-      </p>
-      <p className="mt-3 flex items-center gap-1.5 font-mono text-2xl font-semibold tracking-tight text-zinc-900 tabular-nums dark:text-zinc-50">
-        {dot && <span className={`h-2 w-2 rounded-full ${toneDot[dot]}`} aria-hidden="true" />}
-        {value}
-        {unit && (
-          <span className="text-sm font-normal text-zinc-400 dark:text-zinc-500">{unit}</span>
-        )}
-      </p>
-      {foot && <p className="mt-2 text-xs text-zinc-400 dark:text-zinc-500">{foot}</p>}
-    </div>
-  );
-}
-
 /** A titled panel of label/value definition rows. */
 function DetailPanel({ title, rows }: { title: string; rows: { label: string; value: string }[] }) {
   return (
-    <div className="rounded-lg border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-black">
-      <p className="border-b border-zinc-100 px-4 py-3 text-sm font-medium text-zinc-900 dark:border-zinc-800/60 dark:text-zinc-100">
-        {title}
-      </p>
+    <Panel title={title} padded={false}>
       <dl className="divide-y divide-zinc-100 dark:divide-zinc-800/60">
         {rows.map((r) => (
           <div key={r.label} className="flex items-center justify-between gap-4 px-4 py-2">
@@ -124,7 +90,7 @@ function DetailPanel({ title, rows }: { title: string; rows: { label: string; va
           </div>
         ))}
       </dl>
-    </div>
+    </Panel>
   );
 }
 
@@ -278,30 +244,23 @@ export default function OverviewPage() {
       : "no data";
 
   return (
-    <div className="space-y-6 p-4 md:p-6">
+    <div className={pageCls}>
       {/* Header / status */}
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <div className="flex items-center gap-2">
-            <h1 className="text-lg font-semibold tracking-tight text-zinc-900 dark:text-zinc-50">
-              DevPulse Overview
-            </h1>
-            <span
-              className={`inline-flex items-center gap-1.5 text-xs ${toneText[status.tone]}`}
-            >
-              <span className={`h-1.5 w-1.5 rounded-full ${toneDot[status.tone]}`} aria-hidden="true" />
+          <div className="flex flex-wrap items-center gap-2">
+            <h1 className={pageTitleCls}>DevPulse Overview</h1>
+            <StatusLabel tone={status.tone} className="text-xs">
               {status.label}
-            </span>
+            </StatusLabel>
             {alertCounts && alertCounts.active > 0 && (
-              <Link
-                href="/alerts"
-                className="inline-flex items-center gap-1.5 rounded-md border border-red-200 bg-red-50 px-2 py-0.5 text-xs font-medium text-red-700 hover:bg-red-100 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300 dark:hover:bg-red-950/70"
-              >
-                <span className="h-1.5 w-1.5 rounded-full bg-red-500" aria-hidden="true" />
-                {alertCounts.active} active
-                {alertCounts.critical > 0 && (
-                  <span className="font-semibold">{alertCounts.critical} critical</span>
-                )}
+              <Link href="/alerts" className="shrink-0">
+                <StatusBadge tone="critical">
+                  {alertCounts.active} active
+                  {alertCounts.critical > 0 && (
+                    <span className="font-semibold">{alertCounts.critical} critical</span>
+                  )}
+                </StatusBadge>
               </Link>
             )}
           </div>
@@ -319,10 +278,8 @@ export default function OverviewPage() {
               tab is closed, so staleness is worth surfacing. */}
           {freshness && (
             <p
-              className={`mt-1 text-xs ${
-                freshness.state === "active"
-                  ? "text-zinc-400 dark:text-zinc-500"
-                  : "text-amber-600 dark:text-amber-400"
+              className={`mt-1 ${
+                freshness.state === "active" ? footnoteCls : `text-xs ${toneText.warn}`
               }`}
             >
               {freshness.state === "active"
@@ -334,15 +291,15 @@ export default function OverviewPage() {
           )}
           {/* Highest local volume utilization — one compact line, no chart. */}
           {disk && (
-            <p className="mt-1 text-xs text-zinc-400 dark:text-zinc-500">
+            <p className={`mt-1 ${footnoteCls}`}>
               <Link href="/storage" className="hover:text-zinc-600 dark:hover:text-zinc-300">
                 Storage · {disk.volumeId}{" "}
                 <span
                   className={
                     disk.state === "critical"
-                      ? "text-red-600 dark:text-red-400"
+                      ? toneText.critical
                       : disk.state === "warning"
-                        ? "text-amber-600 dark:text-amber-400"
+                        ? toneText.warn
                         : undefined
                   }
                 >
@@ -353,16 +310,16 @@ export default function OverviewPage() {
           )}
         </div>
         {snapshot && (
-          <p className="font-mono text-xs text-zinc-400 dark:text-zinc-500">
+          <span className={metaCls}>
             Updated {new Date(snapshot.collectedAt).toLocaleTimeString()}
-          </p>
+          </span>
         )}
       </div>
 
       {/* Primary metrics */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <StatTile label="CPU usage" value={fmtPct(cpuPct)} dot={cpuTone} foot={sys ? `${sys.cores} logical cores` : undefined} />
-        <StatTile label="Memory usage" value={fmtBytes(usedMem)} dot={memPctTone} foot={memFoot} />
+        <StatTile label="CPU usage" value={fmtPct(cpuPct)} tone={cpuTone} foot={sys ? `${sys.cores} logical cores` : undefined} />
+        <StatTile label="Memory usage" value={fmtBytes(usedMem)} tone={memPctTone} foot={memFoot} />
         <StatTile label="Receive rate" value={fmtRate(net?.rxRate ?? null)} />
         <StatTile label="Transmit rate" value={fmtRate(net?.txRate ?? null)} />
       </div>
@@ -382,41 +339,36 @@ export default function OverviewPage() {
       <ProjectsSummary />
 
       {/* Last 24 hours */}
-      <section className="rounded-lg border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-black">
-        <div className="border-b border-zinc-100 px-4 py-3 dark:border-zinc-800/60">
-          <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100">Last 24 hours</p>
-        </div>
-        <div className="p-4">
-          {summaryState === "loading" ? (
-            <p className="text-xs text-zinc-400 dark:text-zinc-600">Loading history…</p>
-          ) : summaryState === "error" ? (
-            <p className="text-xs text-zinc-400 dark:text-zinc-600">
-              History is unavailable. Live metrics above continue to update.
-            </p>
-          ) : summary && summary.points === 0 ? (
-            <p className="text-xs text-zinc-400 dark:text-zinc-600">
-              No history recorded in the last 24 hours. Telemetry is saved while DevPulse runs.
-            </p>
-          ) : summary ? (
-            <>
-              <div className="grid grid-cols-2 gap-4 lg:grid-cols-3">
-                <StatTile label="Avg CPU" value={fmtPct(summary.cpu.avg)} unit="" foot="24h average" />
-                <StatTile label="Peak CPU" value={fmtPct(summary.cpu.peak)} unit="" foot="24h peak" />
-                <StatTile label="Avg memory in use" value={fmtBytes(summary.usedMem.avg)} foot="24h average" />
-                <StatTile label="Peak memory in use" value={fmtBytes(summary.usedMem.peak)} foot="24h peak" />
-                <StatTile label="Peak receive rate" value={fmtRate(summary.rxRate)} foot="24h peak" />
-                <StatTile label="Peak transmit rate" value={fmtRate(summary.txRate)} foot="24h peak" />
-              </div>
-              {summary.points < LIMITED_POINTS && (
-                <p className="mt-4 text-xs text-zinc-400 dark:text-zinc-600">
-                  Limited history — DevPulse has only been collecting for a short time ({summary.points}{" "}
-                  {summary.points === 1 ? "sample" : "samples"}).
-                </p>
-              )}
-            </>
-          ) : null}
-        </div>
-      </section>
+      <Panel title="Last 24 hours">
+        {summaryState === "loading" ? (
+          <p className={footnoteCls}>Loading history…</p>
+        ) : summaryState === "error" ? (
+          <p className={footnoteCls}>
+            History is unavailable. Live metrics above continue to update.
+          </p>
+        ) : summary && summary.points === 0 ? (
+          <p className={footnoteCls}>
+            No history recorded in the last 24 hours. Telemetry is saved while DevPulse runs.
+          </p>
+        ) : summary ? (
+          <>
+            <div className="grid grid-cols-2 gap-4 lg:grid-cols-3">
+              <StatTile label="Avg CPU" value={fmtPct(summary.cpu.avg)} foot="24h average" />
+              <StatTile label="Peak CPU" value={fmtPct(summary.cpu.peak)} foot="24h peak" />
+              <StatTile label="Avg memory in use" value={fmtBytes(summary.usedMem.avg)} foot="24h average" />
+              <StatTile label="Peak memory in use" value={fmtBytes(summary.usedMem.peak)} foot="24h peak" />
+              <StatTile label="Peak receive rate" value={fmtRate(summary.rxRate)} foot="24h peak" />
+              <StatTile label="Peak transmit rate" value={fmtRate(summary.txRate)} foot="24h peak" />
+            </div>
+            {summary.points < LIMITED_POINTS && (
+              <p className={`mt-4 ${footnoteCls}`}>
+                Limited history — DevPulse has only been collecting for a short time ({summary.points}{" "}
+                {summary.points === 1 ? "sample" : "samples"}).
+              </p>
+            )}
+          </>
+        ) : null}
+      </Panel>
 
       {/* Intelligence (DeepSeek operational brief — only runs on demand) */}
       <IntelligencePanel />

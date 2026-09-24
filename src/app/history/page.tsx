@@ -7,6 +7,17 @@ import type {
   TimelineEvent,
   TimelineSource,
 } from "@/lib/history/model";
+import {
+  EmptyState,
+  PageHeader,
+  StatusDot,
+  footnoteCls,
+  labelCls,
+  pageCls,
+  selectCls,
+  severityTone,
+  tabCls,
+} from "@/components/ui";
 
 const REFRESH_MS = 30_000;
 
@@ -41,24 +52,6 @@ const sourceLabel: Record<TimelineSource, string> = {
   security: "Security",
   storage: "Storage",
   alert: "Alert",
-};
-
-const sourceChip: Record<string, string> = {
-  system: "text-zinc-500 dark:text-zinc-400",
-  network: "text-zinc-500 dark:text-zinc-400",
-  website: "text-sky-600 dark:text-sky-400",
-  api: "text-teal-600 dark:text-teal-400",
-  github: "text-violet-600 dark:text-violet-400",
-  ai: "text-amber-600 dark:text-amber-400",
-  security: "text-emerald-600 dark:text-emerald-400",
-  storage: "text-indigo-600 dark:text-indigo-400",
-  alert: "text-red-600 dark:text-red-400",
-};
-
-const sevDot: Record<string, string> = {
-  critical: "bg-red-500",
-  warning: "bg-amber-500",
-  info: "bg-sky-500",
 };
 
 type Api = { range: string; count: number; events: TimelineEvent[] };
@@ -154,35 +147,22 @@ export default function HistoryPage() {
     return bySource.filter((e) => projectIdOf(e) === project);
   }, [data, filter, project]);
 
-  const tabClass = (on: boolean) =>
-    `rounded-md px-3 py-1.5 text-[13px] font-medium transition-colors ${
-      on
-        ? "bg-zinc-900 text-zinc-50 dark:bg-zinc-100 dark:text-zinc-900"
-        : "text-zinc-500 hover:bg-zinc-100 hover:text-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-800/60 dark:hover:text-zinc-200"
-    }`;
-
   let body: React.ReactNode;
   if (state === "error" && !data) {
-    body = (
-      <div className="flex h-40 items-center justify-center rounded-lg border border-zinc-200 bg-white text-sm text-zinc-400 dark:border-zinc-800 dark:bg-black dark:text-zinc-500">
-        History is temporarily unavailable.
-      </div>
-    );
+    body = <EmptyState message="History is temporarily unavailable." />;
   } else if (!data) {
-    body = (
-      <div className="flex h-40 items-center justify-center rounded-lg border border-zinc-200 bg-white text-sm text-zinc-400 dark:border-zinc-800 dark:bg-black dark:text-zinc-500">
-        Loading history…
-      </div>
-    );
+    body = <EmptyState message="Loading history…" />;
   } else if (visible.length === 0) {
     body = (
-      <div className="flex h-32 items-center justify-center rounded-lg border border-zinc-200 bg-white text-sm text-zinc-400 dark:border-zinc-800 dark:bg-black dark:text-zinc-500">
-        {project !== "all"
-          ? "No events in this window for sources grouped in this project."
-          : filter === "all"
-            ? "No events in this window yet."
-            : "No events for this source in the window."}
-      </div>
+      <EmptyState
+        message={
+          project !== "all"
+            ? "No events in this window for sources grouped in this project."
+            : filter === "all"
+              ? "No events in this window yet."
+              : "No events for this source in the window."
+        }
+      />
     );
   } else {
     body = (
@@ -195,23 +175,18 @@ export default function HistoryPage() {
   }
 
   return (
-    <div className="space-y-6 p-4 md:p-6">
-      <div>
-        <h1 className="text-lg font-semibold tracking-tight text-zinc-900 dark:text-zinc-50">
-          History
-        </h1>
-        <p className="mt-0.5 text-sm text-zinc-500 dark:text-zinc-400">
-          Chronological events from monitored sources — websites, API endpoints, GitHub, AI
-          usage, alerts and system telemetry.
-        </p>
-      </div>
+    <div className={pageCls}>
+      <PageHeader
+        title="History"
+        description="Chronological events from monitored sources — websites, API endpoints, GitHub, AI usage, alerts and system telemetry."
+      />
 
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex items-center gap-1">{SOURCE_TABS.map((t) => (
+        <div className="flex flex-wrap items-center gap-1">{SOURCE_TABS.map((t) => (
           <button
             key={t.key}
             onClick={() => setFilter(t.key)}
-            className={tabClass(filter === t.key)}
+            className={tabCls(filter === t.key)}
             aria-pressed={filter === t.key}
           >
             {t.label}
@@ -227,7 +202,7 @@ export default function HistoryPage() {
                 id="history-project"
                 value={project}
                 onChange={(e) => setProject(e.target.value)}
-                className="rounded-md border border-zinc-300 bg-white px-2 py-1.5 text-[13px] text-zinc-700 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-black dark:text-zinc-300"
+                className={selectCls}
               >
                 <option value="all">All projects</option>
                 {projects.map((p) => (
@@ -242,7 +217,7 @@ export default function HistoryPage() {
           <button
             key={t.key}
             onClick={() => setRange(t.key)}
-            className={tabClass(range === t.key)}
+            className={tabCls(range === t.key)}
             aria-pressed={range === t.key}
           >
             {t.label}
@@ -252,7 +227,7 @@ export default function HistoryPage() {
       </div>
 
       {data && state === "ok" && (
-        <p className="-mt-3 text-xs text-zinc-400 dark:text-zinc-500">
+        <p className={`-mt-3 ${footnoteCls}`}>
           {data.count} event{data.count === 1 ? "" : "s"} across all sources · showing{" "}
           {visible.length} in this view
           {project !== "all" && (
@@ -272,17 +247,14 @@ export default function HistoryPage() {
 }
 
 function TimelineRow({ e }: { e: TimelineEvent }) {
-  const dot = e.severity ? sevDot[e.severity] : "bg-zinc-300 dark:bg-zinc-600";
   return (
     <li className="flex gap-3 border-b border-zinc-100 px-4 py-3 last:border-0 dark:border-zinc-900">
       <div className="flex w-4 shrink-0 justify-center pt-1.5">
-        <span className={`h-2 w-2 rounded-full ${dot}`} aria-hidden="true" />
+        <StatusDot tone={e.severity ? severityTone[e.severity] : "neutral"} />
       </div>
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-          <span
-            className={`text-[11px] font-medium uppercase tracking-wider ${sourceChip[e.source] ?? ""}`}
-          >
+          <span className={`${labelCls} font-medium`}>
             {sourceLabel[e.source] ?? e.source}
           </span>
           <span className="text-sm font-medium text-zinc-900 dark:text-zinc-50">

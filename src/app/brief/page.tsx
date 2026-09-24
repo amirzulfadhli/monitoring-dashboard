@@ -1,6 +1,16 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import {
+  EmptyState,
+  PageHeader,
+  Panel,
+  StatusBadge,
+  btnPrimary,
+  footnoteCls,
+  mutedCls,
+  narrowPageCls,
+} from "@/components/ui";
 
 /**
  * Daily operational brief. A grounded summary of the monitoring evidence
@@ -125,8 +135,10 @@ export default function BriefPage() {
     [],
   );
 
+  // Deliberately blank while the stored brief loads — the page appears once,
+  // rather than flashing a placeholder first.
   if (state === "loading") {
-    return <div className="mx-auto max-w-3xl p-4 md:p-6" />;
+    return <div className={narrowPageCls} />;
   }
 
   const brief = report?.latest ?? null;
@@ -134,52 +146,50 @@ export default function BriefPage() {
   const cached = report?.cachedForCurrentPeriod ?? false;
 
   return (
-    <div className="mx-auto max-w-3xl space-y-6 p-4 md:p-6">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h1 className="text-lg font-semibold tracking-tight text-zinc-900 dark:text-zinc-50">
-            Daily Brief
-          </h1>
-          <p className="mt-0.5 text-sm text-zinc-500 dark:text-zinc-400">
-            A grounded summary of the monitoring evidence DevPulse has already stored for
-            the current {report?.windowHours ?? 24}h period.
-          </p>
-        </div>
-        <button
-          type="button"
-          onClick={() => void generate(cached)}
-          disabled={running || !report?.available}
-          className="shrink-0 rounded-md bg-zinc-900 px-3.5 py-2 text-sm font-medium text-zinc-50 disabled:opacity-40 dark:bg-zinc-100 dark:text-zinc-900"
-        >
-          {running ? "Generating…" : cached ? "Regenerate" : "Generate brief"}
-        </button>
-      </div>
+    <div className={narrowPageCls}>
+      <PageHeader
+        title="Daily Brief"
+        description={`A grounded summary of the monitoring evidence DevPulse has already stored for the current ${report?.windowHours ?? 24}h period.`}
+        meta={
+          <button
+            type="button"
+            onClick={() => void generate(cached)}
+            disabled={running || !report?.available}
+            className={`shrink-0 ${btnPrimary}`}
+          >
+            {running ? "Generating…" : cached ? "Regenerate" : "Generate brief"}
+          </button>
+        }
+      />
 
       {!report?.available && (
-        <p className="rounded-md border border-zinc-200 px-3 py-2 text-sm text-zinc-500 dark:border-zinc-800 dark:text-zinc-400">
+        <p className={`rounded-md border border-zinc-200 px-3 py-2 ${mutedCls} dark:border-zinc-800`}>
           Briefs cannot be generated — DEEPSEEK_API_KEY is not configured. Monitoring
           continues normally.
         </p>
       )}
 
       {error && (
-        <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300">
+        <p
+          role="alert"
+          className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300"
+        >
           {error}
         </p>
       )}
 
       {!brief ? (
-        <div className="rounded-lg border border-zinc-200 bg-white px-4 py-6 text-center dark:border-zinc-800 dark:bg-black">
-          <p className="text-sm text-zinc-500 dark:text-zinc-400">No brief yet.</p>
-          <p className="mt-1 text-xs text-zinc-400 dark:text-zinc-500">
-            {report?.available
+        <EmptyState
+          title="No brief yet"
+          message={
+            report?.available
               ? "Press “Generate brief” to summarize this period. Nothing is generated automatically."
-              : "Configure DEEPSEEK_API_KEY to enable briefs."}
-          </p>
-        </div>
+              : "Configure DEEPSEEK_API_KEY to enable briefs."
+          }
+        />
       ) : (
         <div className="space-y-4">
-          <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 text-xs text-zinc-400 dark:text-zinc-500">
+          <div className={`flex flex-wrap items-center gap-x-3 gap-y-1 ${footnoteCls}`}>
             <span>{fmtPeriod(brief.periodStart, brief.periodEnd)}</span>
             <span>Generated {fmtTime(brief.generatedAt)}</span>
             <span>
@@ -187,33 +197,22 @@ export default function BriefPage() {
             </span>
             {brief.model && <span>{brief.model}</span>}
             {brief.insufficientEvidence && (
-              <span className="rounded border border-amber-200 bg-amber-50 px-1.5 py-0.5 font-medium text-amber-700 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300">
-                Insufficient evidence
-              </span>
+              <StatusBadge tone="warn">Insufficient evidence</StatusBadge>
             )}
           </div>
 
-          <section className="rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-black">
-            <p className="text-[11px] font-medium uppercase tracking-wider text-zinc-400 dark:text-zinc-500">
-              Summary
-            </p>
-            <p className="mt-2 text-sm leading-relaxed whitespace-pre-line text-zinc-800 dark:text-zinc-200">
+          <Panel title="Summary">
+            <p className="text-sm leading-relaxed whitespace-pre-line text-zinc-800 dark:text-zinc-200">
               {brief.summary}
             </p>
-          </section>
+          </Panel>
 
           {SECTIONS.map(({ key, label }) => {
             const items = brief[key];
             return (
-              <section
-                key={key}
-                className="rounded-lg border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-black"
-              >
-                <p className="border-b border-zinc-100 px-4 py-2.5 text-[11px] font-medium uppercase tracking-wider text-zinc-400 dark:border-zinc-900 dark:text-zinc-500">
-                  {label}
-                </p>
+              <Panel key={key} title={label} padded={false}>
                 {items.length === 0 ? (
-                  <p className="px-4 py-3 text-sm text-zinc-400 dark:text-zinc-500">
+                  <p className={`px-4 py-3 ${footnoteCls}`}>
                     Nothing observed in this period.
                   </p>
                 ) : (
@@ -228,21 +227,17 @@ export default function BriefPage() {
                     ))}
                   </ul>
                 )}
-              </section>
+              </Panel>
             );
           })}
 
-          <section className="rounded-lg border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-black">
-            <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-zinc-100 px-4 py-2.5 dark:border-zinc-900">
-              <span className="text-[11px] font-medium uppercase tracking-wider text-zinc-400 dark:text-zinc-500">
-                Evidence
-              </span>
-              <span className="text-xs text-zinc-400 dark:text-zinc-500">
-                {brief.evidenceCount} supplied · {cited.size} cited
-              </span>
-            </div>
+          <Panel
+            title="Evidence"
+            hint={`${brief.evidenceCount} supplied · ${cited.size} cited`}
+            padded={false}
+          >
             {brief.evidence.length === 0 ? (
-              <p className="px-4 py-3 text-sm text-zinc-400 dark:text-zinc-500">
+              <p className={`px-4 py-3 ${footnoteCls}`}>
                 No evidence was recorded for this period.
               </p>
             ) : (
@@ -280,9 +275,9 @@ export default function BriefPage() {
                 })}
               </ul>
             )}
-          </section>
+          </Panel>
 
-          <p className="text-xs text-zinc-400 dark:text-zinc-500">
+          <p className={footnoteCls}>
             Grounded only in the evidence above. Nothing was checked, run or fetched to
             produce this brief
             {brief.usage?.outputTokens != null ? ` · ${brief.usage.outputTokens} output tokens` : ""}
