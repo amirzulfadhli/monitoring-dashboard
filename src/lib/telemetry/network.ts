@@ -1,5 +1,7 @@
 import { spawn } from "node:child_process";
 
+import { withoutCredentials } from "@/lib/secrets";
+
 export type InterfaceSample = { name: string; rx: number; tx: number };
 
 // Node's os.networkInterfaces() exposes addresses but no byte counters. On
@@ -63,7 +65,11 @@ export function physicalTotals(samples: InterfaceSample[] | null) {
 
 function runPw(args: string[]): Promise<string | null> {
   return new Promise((resolve) => {
-    const child = spawn(PW, args, { windowsHide: true });
+    // The sampling script is a constant; credentials are not inherited into it.
+    const child = spawn(PW, args, {
+      windowsHide: true,
+      env: withoutCredentials(),
+    });
     let out = "";
     let err = "";
     const timer = setTimeout(() => child.kill(), 6000);

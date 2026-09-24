@@ -105,8 +105,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\devpulse-autostart.p
 | Disable auto-start and stop | `npm run autostart:remove` then `npm run runtime:stop` |
 
 Only one instance runs at a time. The launcher holds `.devpulse\runtime.lock`
-containing the pid it started; a second start is refused while that pid is
-alive. A lock left behind by a crash (the pid is gone, or the pid now belongs to
+containing the pid it started and the database path it resolved; a second start
+is refused while that pid is alive. A lock left behind by a crash (the pid is gone, or the pid now belongs to
 an unrelated program) is detected as stale and cleared automatically - a crash
 never makes DevPulse permanently unstartable. Stopping only ever targets the pid
 recorded in that lock, never a wildcard match on `node`.
@@ -122,6 +122,22 @@ recorded in that lock, never a wildcard match on `node`.
 - Optional variables (`GITHUB_TOKEN`, `DEEPSEEK_API_KEY`) degrade gracefully:
   without them the affected collectors report themselves as inactive and
   everything else keeps running.
+- Child processes never inherit a credential: the PowerShell helpers (toast,
+  security, storage, network) are spawned with `GITHUB_TOKEN` and
+  `DEEPSEEK_API_KEY` removed from their environment.
+
+### Network exposure
+
+DevPulse V1 has **no authentication**. It binds to `127.0.0.1` by default, which
+keeps it on the machine that runs it.
+
+Setting `DEVPULSE_HOST` to a non-loopback address (for example `0.0.0.0`) makes
+the dashboard reachable from anywhere that can route to the port, and anyone who
+reaches it can read the dashboard and change its settings. The launcher prints a
+warning when that happens, and `npm run runtime:check` reports the bind as
+reachable from other machines.
+
+> Do not expose DevPulse directly to an untrusted network.
 
 ### Troubleshooting startup
 

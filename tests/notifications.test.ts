@@ -481,6 +481,29 @@ test("only sanitized alert text is stored", (t) =>
     assert.ok(sanitizeNotificationText("y".repeat(500)).endsWith("…"));
   }));
 
+test("sanitizing strips control characters and nothing wider", () => {
+  // The class is exactly C0 + DEL + C1. It used to be written with a raw byte
+  // for U+009F, which in a UTF-8 source became two code units and widened the
+  // range to U+007f-U+00C2 — so ordinary accented letters were blanked too.
+  for (const c of ["\u0000", "\u0007", "\u001f", "\u007f", "\u0080", "\u009f"]) {
+    assert.equal(
+      sanitizeNotificationText(`x${c}y`),
+      "x y",
+      `U+${c.codePointAt(0)!.toString(16)} must be stripped`,
+    );
+  }
+  for (const c of ["Â", "é", "—", "中"]) {
+    assert.equal(
+      sanitizeNotificationText(`x${c}y`),
+      `x${c}y`,
+      `U+${c.codePointAt(0)!.toString(16)} is text, not control, and must survive`,
+    );
+  }
+  // A non-breaking space is whitespace, so the collapse rule flattens it —
+  // wider than the control class, but that predates and is unrelated to it.
+  assert.equal(sanitizeNotificationText("x y"), "x y");
+});
+
 test("project context is a label, not a second notification", (t) =>
   withTempDb(t, (db) => {
     configure(prefs({ minSeverity: "warning" }));

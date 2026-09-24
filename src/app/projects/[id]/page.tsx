@@ -82,7 +82,9 @@ function fmtAgo(ts: number | null) {
 export default function ProjectDetailPage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
-  const projectId = decodeURIComponent(String(params.id));
+  // useParams already yields the decoded segment; decoding again would corrupt
+  // (or throw on) a value that contains a literal '%'.
+  const projectId = String(params.id);
 
   const [project, setProject] = useState<ProjectDetail | null>(null);
   const [state, setState] = useState<"loading" | "error" | "ok">("loading");

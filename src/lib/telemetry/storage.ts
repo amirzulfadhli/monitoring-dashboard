@@ -15,8 +15,6 @@ import { getDb } from "@/lib/db";
 // ~30s instead of one per request.
 export const SNAPSHOT_INTERVAL_MS = 30_000;
 
-type Row = Record<string, string | number | bigint | null>;
-
 let lastPersistedAt = 0;
 
 /** The subset of a snapshot worth keeping for historical monitoring. */

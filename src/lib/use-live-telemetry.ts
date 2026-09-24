@@ -19,8 +19,13 @@ type Options = {
 export function useLiveTelemetry({ refreshMs = 3000, onSnapshot }: Options = {}) {
   const [snapshot, setSnapshot] = useState<TelemetrySnapshot | null>(null);
   const [unavailable, setUnavailable] = useState(false);
+  // Latest-ref pattern: the callback is stored in an effect rather than during
+  // render, so the poll below always calls the current closure without
+  // restarting on every render.
   const onSnap = useRef(onSnapshot);
-  onSnap.current = onSnapshot;
+  useEffect(() => {
+    onSnap.current = onSnapshot;
+  });
 
   useEffect(() => {
     let cancelled = false;

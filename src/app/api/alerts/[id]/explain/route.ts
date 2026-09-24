@@ -27,8 +27,10 @@ export async function POST(
   _req: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const { id } = await params;
-  const fingerprint = decodeURIComponent(id);
+  // Next.js has already percent-decoded the route parameter. Decoding it again
+  // would corrupt any id containing a literal '%' and throw URIError on a
+  // malformed one, so the value is used exactly as delivered.
+  const { id: fingerprint } = await params;
 
   const result = await explainAlert(fingerprint);
   if (result === null) {

@@ -84,6 +84,13 @@ function Write-RuntimeError {
   [Console]::Error.WriteLine("DevPulse runtime: $Message")
 }
 
+# A warning is informational: it is recorded and shown, and never blocks startup.
+function Write-RuntimeWarning {
+  param([string]$Message)
+  Write-RuntimeLog "WARNING: $Message"
+  [Console]::Error.WriteLine("DevPulse runtime: WARNING: $Message")
+}
+
 function Invoke-LogRotation {
   try {
     if ((Test-Path $RuntimeLog) -and ((Get-Item $RuntimeLog).Length -gt $MaxLogBytes)) {
@@ -130,6 +137,29 @@ function Get-DisplayUrl {
   return "http://${hostName}:$Port"
 }
 
+<#
+  The bind address is handed to `next start -H` as a separate argument, and
+  Start-Process joins an argument array into one command line without quoting
+  any element. A value containing whitespace or a quote could therefore append
+  flags of its own, so only an IP literal or a hostname - which is all `-H`
+  documents - is accepted, and a leading '-' is refused so the value can never
+  be read as an option.
+#>
+function Test-BindAddress {
+  param([string]$Address)
+
+  if (-not $Address) { return $false }
+  if ($Address.Length -gt 253) { return $false }
+  if ($Address.StartsWith('-')) { return $false }
+  return [bool]($Address -match '^[A-Za-z0-9:._%\[\]-]+$')
+}
+
+<# True for the addresses that keep DevPulse on this machine only. #>
+function Test-LoopbackBind {
+  param([string]$Address)
+  return $Address -in @('127.0.0.1', '::1', '[::1]', 'localhost')
+}
+
 function Read-Lock {
   if (-not (Test-Path $LockPath)) { return $null }
   try { return (Get-Content -LiteralPath $LockPath -Raw | ConvertFrom-Json) } catch { return $null }
@@ -158,14 +188,20 @@ function Test-LockStale {
 }
 
 function Write-Lock {
-  param([int]$ProcessId)
+  param([int]$ProcessId, [string]$DatabasePath)
 
   if (-not (Test-Path $DataDir)) { New-Item -ItemType Directory -Path $DataDir -Force | Out-Null }
+  # The database path is recorded because the launcher cannot re-derive it later:
+  # the server loads .env.local itself, so a DEVPULSE_DB_PATH / DEVPULSE_DB_DIR
+  # configured there is set on the server's environment but never on this
+  # script's. Resolving it once, where it is actually known, is what keeps
+  # -Action Status reporting the file the running instance opened.
   [pscustomobject]@{
     pid       = $ProcessId
     startedAt = (Get-Date).ToString('o')
     port      = $Port
     host      = $BindAddress
+    dbPath    = $DatabasePath
   } | ConvertTo-Json | Set-Content -LiteralPath $LockPath -Encoding UTF8
 }
 
@@ -283,7 +319,8 @@ function Invoke-Check {
   Write-Host ('  build        : {0}' -f ($(if (Test-Path $report.BuildMarker) { 'present' } else { 'MISSING - run: npm run build' })))
   Write-Host ('  env file     : {0}' -f ($(if (Test-Path $envFile) { '.env.local present' } else { '.env.local absent (optional; integrations stay disabled)' })))
   Write-Host ('  database     : {0}' -f $report.DbPath)
-  Write-Host ('  bind         : {0}' -f (Get-DisplayUrl))
+  $exposure = $(if (Test-LoopbackBind -Address $BindAddress) { 'loopback only' } else { 'REACHABLE FROM OTHER MACHINES - no authentication' })
+  Write-Host ('  bind         : {0} ({1})' -f (Get-DisplayUrl), $exposure)
   if ($portFree -eq $true) { Write-Host ('  port {0}      : free' -f $Port) }
   elseif ($portFree -eq $false) { Write-Host ('  port {0}      : IN USE' -f $Port) }
   else { Write-Host ('  port {0}      : not probed (non-IP bind address)' -f $Port) }
@@ -363,7 +400,13 @@ function Invoke-Status {
   $proc = Get-Process -Id ([int]$lock.pid) -ErrorAction SilentlyContinue
   Write-Host ('DevPulse is running: pid {0} ({1}), started {2}' -f $lock.pid, $proc.ProcessName, $lock.startedAt)
   Write-Host ('url          : http://{0}:{1}' -f $lock.host, $lock.port)
-  Write-Host ('database     : {0}' -f (Resolve-DbPath))
+  # Recorded when this instance started. Re-resolving here would report the
+  # default whenever the caller's shell does not carry the environment the
+  # server was given. A lock written by an older build has no dbPath, so that
+  # case falls back to the same resolution everything else uses.
+  $dbPath = [string]$lock.dbPath
+  if (-not $dbPath.Trim()) { $dbPath = Resolve-DbPath }
+  Write-Host ('database     : {0}' -f $dbPath)
   Write-Host ('runtime log  : {0}' -f $RuntimeLog)
   Write-Host (Get-SchedulerSummary -Url ('http://{0}:{1}' -f $(if ($lock.host -in @('0.0.0.0', '::', '*')) { '127.0.0.1' } else { $lock.host }), $lock.port))
   return 0
@@ -426,6 +469,12 @@ function Invoke-Run {
 
   Invoke-LogRotation
 
+  # DevPulse V1 has no authentication. Loopback is the only bind that is safe by
+  # default, so anything else says so plainly before the server starts.
+  if (-not (Test-LoopbackBind -Address $BindAddress)) {
+    Write-RuntimeWarning "binding to $BindAddress is reachable from other machines - DevPulse has NO authentication. Do not expose DevPulse directly to an untrusted network."
+  }
+
   $url = Get-DisplayUrl
   $startArgs = @{
     FilePath     = $report.Npm
@@ -444,7 +493,7 @@ function Invoke-Run {
   Write-RuntimeLog "starting DevPulse: $url (database $($report.DbPath))"
 
   $proc = Start-Process @startArgs
-  Write-Lock -ProcessId $proc.Id
+  Write-Lock -ProcessId $proc.Id -DatabasePath $report.DbPath
   Write-RuntimeLog "running: pid $($proc.Id); logs in $LogDir"
 
   try {
@@ -492,6 +541,9 @@ try {
     $Port = $parsed
   }
   $BindAddress = Resolve-Setting -Explicit $BindAddress -EnvName 'DEVPULSE_HOST' -Default '127.0.0.1'
+  if (-not (Test-BindAddress -Address $BindAddress)) {
+    throw "DEVPULSE_HOST is not a valid bind address: '$BindAddress' (expected an IP address or hostname)"
+  }
 
   switch ($Action) {
     'Check' { exit (Invoke-Check) }

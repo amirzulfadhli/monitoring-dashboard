@@ -86,6 +86,11 @@ function toInt(v: unknown): number | null {
   return Math.trunc(v);
 }
 
+/** Narrow an untrusted parsed JSON value to a plain object. */
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return typeof v === "object" && v !== null;
+}
+
 /** Parse an ISO event timestamp; falls back to the file's mtime. */
 function tsOf(raw: unknown, fallbackMs: number): number {
   if (typeof raw === "string") {
@@ -113,23 +118,27 @@ type ParsedEvent = {
  * line is not an assistant usage event (or is malformed). No content is kept.
  */
 function parseAssistantEvent(line: string, fallbackMs: number): ParsedEvent | null {
-  let ev: any;
+  let parsed: unknown;
   try {
-    ev = JSON.parse(line);
+    parsed = JSON.parse(line);
   } catch {
     return null; // malformed / partially-written line — never abort ingestion
   }
-  if (!ev || ev.type !== "assistant") return null;
+  if (!isRecord(parsed)) return null;
+  const ev = parsed;
+  if (ev.type !== "assistant") return null;
   const msg = ev.message;
-  const usage = msg?.usage;
-  if (!msg || !usage) return null;
+  if (!isRecord(msg)) return null;
+  const usage = msg.usage;
+  if (!isRecord(usage)) return null;
 
   const messageId = typeof msg.id === "string" ? msg.id : null;
   if (!messageId) return null; // no stable key — cannot dedupe, so skip
 
+  const details = isRecord(usage.output_tokens_details) ? usage.output_tokens_details : null;
   const input = toInt(usage.input_tokens);
   const output = toInt(usage.output_tokens);
-  const thinking = toInt(usage.output_tokens_details?.thinking_tokens);
+  const thinking = toInt(details?.thinking_tokens);
   const cacheCreation = toInt(usage.cache_creation_input_tokens);
   const cacheRead = toInt(usage.cache_read_input_tokens);
   const model = typeof msg.model === "string" ? msg.model : null;

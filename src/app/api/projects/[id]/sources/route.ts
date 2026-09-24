@@ -30,7 +30,9 @@ export async function POST(
   const body = await readJson(req);
   if (!body) return bad("Invalid request body.");
 
-  const result = associateSourceToProject(decodeURIComponent(id), body.type, body.id);
+  // Next.js has already percent-decoded the route parameter (see the sibling
+  // [id] route); decoding it again throws on a malformed value.
+  const result = associateSourceToProject(id, body.type, body.id);
   return result.ok ? Response.json({ ok: true }) : bad(result.error);
 }
 
@@ -48,7 +50,7 @@ export async function DELETE(
   // not silently ungrouped through this URL.
   const ref = validateSourceRef(type, sourceId);
   if (!ref.ok) return bad(ref.error);
-  if (getAssociation(ref.type, ref.id)?.projectId !== decodeURIComponent(id)) {
+  if (getAssociation(ref.type, ref.id)?.projectId !== id) {
     return bad("Source is not assigned to this project.");
   }
 

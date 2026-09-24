@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Project grouping (Task 25).
  *
  * These tests pin the behavior a regression would actually hurt: that a project
@@ -165,7 +165,7 @@ test("schema: an existing database migrates in place without losing rows", (t) =
 /* --------------------------------- CRUD -------------------------------- */
 
 test("crud: create, list, read and update a project", (t) => {
-  withTempDb(t, (db) => {
+  withTempDb(t, () => {
     const created = createProject({ name: " Storefront ", description: " Customer-facing " });
     assert.ok(created.ok);
 
@@ -180,7 +180,7 @@ test("crud: create, list, read and update a project", (t) => {
     const summaries = listProjects();
     assert.equal(summaries.length, 1);
     assert.equal(summaries[0].sources.total, 0);
-    // A project with nothing grouped is unknown — never healthy.
+    // A project with nothing grouped is unknown â€” never healthy.
     assert.equal(summaries[0].health.state, "unknown");
     assert.equal(summaries[0].health.counts.total, 0);
 
@@ -199,7 +199,7 @@ test("crud: create, list, read and update a project", (t) => {
 });
 
 test("crud: invalid names and descriptions are refused", (t) => {
-  withTempDb(t, (db) => {
+  withTempDb(t, () => {
     assert.equal(createProject({ name: "" }).ok, false);
     assert.equal(createProject({ name: "   " }).ok, false);
     assert.equal(createProject({ name: 42 }).ok, false);
@@ -219,7 +219,7 @@ test("crud: invalid names and descriptions are refused", (t) => {
 });
 
 test("crud: duplicate names are refused, case-insensitively", (t) => {
-  withTempDb(t, (db) => {
+  withTempDb(t, () => {
     assert.ok(createProject({ name: "Storefront" }).ok);
 
     const dup = createProject({ name: "storefront" });
@@ -241,7 +241,7 @@ test("crud: duplicate names are refused, case-insensitively", (t) => {
 });
 
 test("crud: unknown projects are reported, not silently created", (t) => {
-  withTempDb(t, (db) => {
+  withTempDb(t, () => {
     assert.equal(getProject("nope"), null);
     assert.equal(updateProject("nope", { name: "x" }).ok, false);
     assert.equal(deleteProject("nope").ok, false);
@@ -252,7 +252,7 @@ test("crud: unknown projects are reported, not silently created", (t) => {
 /* ----------------------------- associations ---------------------------- */
 
 test("associate: a configured source can be grouped, and only an existing one", (t) => {
-  withTempDb(t, (db) => {
+  withTempDb(t, () => {
     const pid = project("Storefront");
     insertWebsite({ name: "Shop", url: "https://example.com/", expectedStatus: null });
     const siteId = (listWebsites() ?? [])[0].id;
@@ -266,7 +266,7 @@ test("associate: a configured source can be grouped, and only an existing one", 
     assert.equal(detail?.sources[0].type, "website");
     assert.equal(detail?.sources[0].name, "Shop");
     assert.equal(detail?.counts.website, 1);
-    // No observation has been stored, so the state is unknown — never invented.
+    // No observation has been stored, so the state is unknown â€” never invented.
     assert.equal(detail?.sources[0].health, "unknown");
     assert.equal(detail?.sources[0].checkedAt, null);
 
@@ -282,8 +282,8 @@ test("associate: a configured source can be grouped, and only an existing one", 
   });
 });
 
-test("associate: one project per source — reassignment moves, never duplicates", (t) => {
-  withTempDb(t, (db) => {
+test("associate: one project per source â€” reassignment moves, never duplicates", (t) => {
+  withTempDb(t, () => {
     const a = project("Storefront");
     const b = project("Internal tools");
     insertWebsite({ name: "Shop", url: "https://example.com/", expectedStatus: null });
@@ -306,7 +306,7 @@ test("associate: one project per source — reassignment moves, never duplicates
 });
 
 test("associate: all four groupable source kinds are supported", (t) => {
-  withTempDb(t, (db) => {
+  withTempDb(t, () => {
     const pid = project("Everything");
     insertWebsite({ name: "Shop", url: "https://example.com/", expectedStatus: null });
     insertApi({
@@ -348,7 +348,7 @@ test("associate: all four groupable source kinds are supported", (t) => {
 });
 
 test("unassign: a source leaves the project and keeps being monitored", (t) => {
-  withTempDb(t, (db) => {
+  withTempDb(t, () => {
     const pid = project("Storefront");
     insertWebsite({ name: "Shop", url: "https://example.com/", expectedStatus: null });
     const siteId = (listWebsites() ?? [])[0].id;
@@ -370,7 +370,7 @@ test("unassign: a source leaves the project and keeps being monitored", (t) => {
 });
 
 test("unassign: removing a source from Settings clears its membership", (t) => {
-  withTempDb(t, (db) => {
+  withTempDb(t, () => {
     const pid = project("Storefront");
     insertWebsite({ name: "Shop", url: "https://example.com/", expectedStatus: null });
     const siteId = (listWebsites() ?? [])[0].id;
@@ -395,7 +395,7 @@ test("unassign: removing a source from Settings clears its membership", (t) => {
 /* ------------------------------- deletion ------------------------------ */
 
 test("delete: removing a project keeps every source, grouped nowhere", (t) => {
-  withTempDb(t, (db) => {
+  withTempDb(t, () => {
     const pid = project("Storefront");
     insertWebsite({ name: "Shop", url: "https://example.com/", expectedStatus: null });
     insertDevice({ name: "Build", host: "build-01.local", type: "server" });
@@ -485,7 +485,7 @@ test("read: a project page never collects, checks or fetches anything", (t) => {
       globalThis.fetch = realFetch;
     }
 
-    // Once an observation *is* stored, the same read reports it — proving the
+    // Once an observation *is* stored, the same read reports it â€” proving the
     // state comes from persisted rows rather than from a fresh probe.
     persistWebsiteCheck({
       ts: Date.now(),
@@ -591,7 +591,7 @@ test("history: events carry their source's current project, unrewritten", (t) =>
 
     const grouped = buildTimeline("24H").filter((e) => e.source === "website");
     assert.equal(grouped.length, 1);
-    // Same event — same id, same timestamp, same description. Only a label was
+    // Same event â€” same id, same timestamp, same description. Only a label was
     // added; nothing was rewritten, duplicated or re-timestamped.
     assert.equal(grouped[0].id, baseline.id);
     assert.equal(grouped[0].ts, baseline.ts);
@@ -600,7 +600,7 @@ test("history: events carry their source's current project, unrewritten", (t) =>
     assert.equal(grouped[0].metadata?.projectName, "Storefront");
 
     // LIMITATION, asserted deliberately: the event happened before the
-    // association, yet carries it — DevPulse stores only the current
+    // association, yet carries it â€” DevPulse stores only the current
     // membership, not membership as of the event. Representing the latter would
     // need event-sourced association history, which Task 25 does not add.
     const row = (listProjectRows() ?? [])[0];

@@ -22,9 +22,11 @@ export async function GET(
   _req: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
+  // Next.js has already percent-decoded the route parameter, so the id is used
+  // as delivered — decoding it again throws URIError on a malformed value.
   const { id } = await params;
   try {
-    const project = getProject(decodeURIComponent(id));
+    const project = getProject(id);
     if (!project) return notFound("Project not found.");
     return Response.json(
       { generatedAt: Date.now(), project },
@@ -44,7 +46,7 @@ export async function PUT(
   const body = await readJson(req);
   if (!body) return bad("Invalid request body.");
 
-  const result = updateProject(decodeURIComponent(id), {
+  const result = updateProject(id, {
     ...(body.name !== undefined ? { name: body.name } : {}),
     ...(body.description !== undefined ? { description: body.description } : {}),
   });
@@ -57,6 +59,6 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> },
 ) {
   const { id } = await params;
-  const result = deleteProject(decodeURIComponent(id));
+  const result = deleteProject(id);
   return result.ok ? Response.json({ ok: true }) : notFound(result.error);
 }

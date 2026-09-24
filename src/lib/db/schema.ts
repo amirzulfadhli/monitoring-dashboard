@@ -26,21 +26,24 @@ import type { DatabaseSync } from "node:sqlite";
 /** Current schema version. Bump when adding a migration below. */
 export const SCHEMA_VERSION = 8;
 
-/** Add a column to a table only if it does not exist yet (idempotent, additive). */
+/**
+ * Add a column to a table only if it does not exist yet (idempotent, additive).
+ *
+ * A failure here propagates rather than being swallowed: the migration runner
+ * rolls the whole migration back, so the recorded version never claims a column
+ * that was not actually added. Callers already degrade safely — `getDb()`
+ * returns null and storage becomes a no-op (see lib/db/index.ts).
+ */
 function addColumn(
   d: DatabaseSync,
   table: string,
   column: string,
   ddl: string,
 ): void {
-  try {
-    const found = (
-      d.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]
-    ).some((c) => c.name === column);
-    if (!found) d.exec(`ALTER TABLE ${table} ADD COLUMN ${ddl}`);
-  } catch {
-    // A failed migration must never prevent the table from being usable.
-  }
+  const found = (
+    d.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]
+  ).some((c) => c.name === column);
+  if (!found) d.exec(`ALTER TABLE ${table} ADD COLUMN ${ddl}`);
 }
 
 /**
@@ -582,7 +585,22 @@ export function migrate(d: DatabaseSync): void {
 
   for (const m of MIGRATIONS) {
     if (m.version <= from) continue;
-    m.up(d);
-    setUserVersion(d, m.version);
+    // One transaction per migration, version stamp included. SQLite journals
+    // DDL and `PRAGMA user_version` together, so either the whole migration and
+    // its version land, or neither does — a failure part-way through can never
+    // leave the schema and the recorded version disagreeing.
+    d.exec("BEGIN");
+    try {
+      m.up(d);
+      setUserVersion(d, m.version);
+      d.exec("COMMIT");
+    } catch (e) {
+      try {
+        d.exec("ROLLBACK");
+      } catch {
+        // Already unwound; the original failure is the one worth reporting.
+      }
+      throw e;
+    }
   }
 }

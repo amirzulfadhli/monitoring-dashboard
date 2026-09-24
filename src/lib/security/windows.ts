@@ -16,6 +16,7 @@
 
 import { spawn } from "node:child_process";
 
+import { withoutCredentials } from "@/lib/secrets";
 import {
   normalizePorts,
   type DefenderStatus,
@@ -103,7 +104,11 @@ export function runPowerShell(script: string, timeoutMs = TIMEOUT_MS): Promise<s
   return new Promise((resolve) => {
     let child;
     try {
-      child = spawn(PW, PW_ARGS.concat([script]), { windowsHide: true });
+      // The probe script is a constant; credentials are not inherited into it.
+      child = spawn(PW, PW_ARGS.concat([script]), {
+        windowsHide: true,
+        env: withoutCredentials(),
+      });
     } catch {
       resolve(null);
       return;

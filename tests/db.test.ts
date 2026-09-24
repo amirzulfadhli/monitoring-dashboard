@@ -206,6 +206,96 @@ test("a version-0 legacy database upgrades without losing rows", (t) => {
   db.close();
 });
 
+/*
+ * Migration atomicity.
+ *
+ * Migrations used to run statement-by-statement with the version stamped
+ * afterwards, outside any transaction. A failure part-way through a migration
+ * could therefore leave objects created but the version un-advanced, and a
+ * swallowed column error could advance the version past a column that was never
+ * added. Each migration now runs in one transaction that includes its own
+ * version stamp, so schema and version can never disagree.
+ */
+
+test("SQLite rolls DDL and user_version back together", (t) => {
+  const db = new DatabaseSync(path.join(tempDir(t), DB_FILE_NAME));
+
+  // The property the migration runner depends on: a version stamp is journalled
+  // with everything else in the transaction, so unwinding restores both.
+  db.exec("BEGIN");
+  db.exec("CREATE TABLE partial (id INTEGER PRIMARY KEY)");
+  db.exec("PRAGMA user_version = 8");
+  assert.ok(names(db, "table").has("partial"));
+  assert.equal(userVersion(db), 8);
+
+  db.exec("ROLLBACK");
+
+  assert.equal(
+    names(db, "table").has("partial"),
+    false,
+    "created DDL must roll back with the transaction",
+  );
+  assert.equal(userVersion(db), 0, "the version stamp must roll back too");
+  db.close();
+});
+
+test("a migration that fails part-way rolls back rather than stamping a partial schema", (t) => {
+  const dir = tempDir(t);
+  const file = path.join(dir, DB_FILE_NAME);
+
+  const db = new DatabaseSync(file);
+  // Occupy the name of an index migration 1 creates late, so the index creation
+  // is the failure and every table/column before it has already been applied.
+  db.exec("CREATE TABLE idx_ai_usage_ts (x INTEGER)");
+
+  assert.throws(
+    () => migrate(db),
+    /idx_ai_usage_ts/,
+    "the migration should surface its failure rather than swallow it",
+  );
+
+  assert.equal(
+    userVersion(db),
+    0,
+    "a failed migration must not advance the recorded version",
+  );
+  for (const table of ["history", "website_checks", "ai_usage"]) {
+    assert.equal(
+      names(db, "table").has(table),
+      false,
+      `no partially-migrated object may survive: ${table}`,
+    );
+  }
+  assert.ok(
+    names(db, "table").has("idx_ai_usage_ts"),
+    "the pre-existing object is left untouched",
+  );
+
+  // The rollback leaves the file migratable: clearing the obstruction is enough
+  // for a later open to reach the current version.
+  db.exec("DROP TABLE idx_ai_usage_ts");
+  migrate(db);
+  assert.equal(userVersion(db), SCHEMA_VERSION);
+  db.close();
+});
+
+test("migrate is idempotent across repeated opens", (t) => {
+  const file = path.join(tempDir(t), DB_FILE_NAME);
+
+  const first = new DatabaseSync(file);
+  migrate(first);
+  const tables = names(first, "table");
+  const indexes = names(first, "index");
+  first.close();
+
+  const second = new DatabaseSync(file);
+  migrate(second);
+  assert.equal(userVersion(second), SCHEMA_VERSION);
+  assert.deepEqual(names(second, "table"), tables);
+  assert.deepEqual(names(second, "index"), indexes);
+  second.close();
+});
+
 test("a database from a newer build is not downgraded", (t) => {
   const dir = tempDir(t);
   const file = path.join(dir, DB_FILE_NAME);

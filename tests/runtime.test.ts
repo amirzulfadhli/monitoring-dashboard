@@ -87,6 +87,42 @@ test("launcher establishes the working directory before resolving the database",
   assert.match(src, /DEVPULSE_DB_DIR/);
 });
 
+test("status reports the database the running instance opened", () => {
+  const src = read(LAUNCHER);
+  const bodyOf = (name: string) => {
+    const from = src.indexOf(`function ${name}`);
+    assert.ok(from > -1, `missing function ${name}`);
+    const next = src.indexOf("\nfunction ", from);
+    return src.slice(from, next === -1 ? undefined : next);
+  };
+
+  // The server reads .env.local itself, so a DEVPULSE_DB_PATH / DEVPULSE_DB_DIR
+  // set there reaches the server's environment but never the launcher's. Status
+  // therefore cannot re-derive the path from whatever shell happens to call it;
+  // it reports the one resolved at startup, where the value was known.
+  assert.match(
+    bodyOf("Invoke-Run"),
+    /Write-Lock -ProcessId \$proc\.Id -DatabasePath \$report\.DbPath/,
+    "Run should record the path it resolved",
+  );
+  assert.match(bodyOf("Write-Lock"), /dbPath\s*=\s*\$DatabasePath/);
+
+  const status = bodyOf("Invoke-Status");
+  assert.match(status, /\$lock\.dbPath/, "Status should read the recorded path");
+
+  // The recorded path wins; the resolver is only a fallback for a lock written
+  // before the field existed, so the precedence still has exactly one home.
+  const fallback = status.slice(status.indexOf("$lock.dbPath"));
+  assert.match(
+    fallback,
+    /if \(-not \$dbPath\.Trim\(\)\) \{ \$dbPath = Resolve-DbPath \}/,
+    "the fallback should ignore a blank value and reuse Resolve-DbPath",
+  );
+
+  // Status stays read-only: it must never open, create or migrate the database.
+  assert.doesNotMatch(status, /New-Item|Set-Content|migrate|node\.exe/i);
+});
+
 test("launcher runs the production server, never the development one", () => {
   const src = read(LAUNCHER);
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { useLiveTelemetry } from "@/lib/use-live-telemetry";
 import {
   PageHeader,
@@ -148,32 +148,31 @@ function ChartState({ message }: { message: string }) {
 
 export default function NetworkPage() {
   const [range, setRange] = useState<RangeKey>("Live");
-  const liveRef = useRef<Point[]>([]);
-  const [, forceTick] = useState(0);
+  const [livePoints, setLivePoints] = useState<Point[]>([]);
 
   const { snapshot, unavailable } = useLiveTelemetry({
     refreshMs: REFRESH_MS,
     onSnapshot: (data) => {
       const net = data.network;
       if (net && isFinite(net.rxRate) && isFinite(net.txRate)) {
-        liveRef.current = [
-          ...liveRef.current.slice(-(LIVE_POINTS - 1)),
+        setLivePoints((prev) => [
+          ...prev.slice(-(LIVE_POINTS - 1)),
           { ts: data.collectedAt, rxRate: net.rxRate, txRate: net.txRate },
-        ];
-        forceTick((t) => t + 1);
+        ]);
       }
     },
   });
 
   // History state (only fetched when not on Live).
   const [hist, setHist] = useState<{ range: RangeKey; points: Point[] } | null>(null);
-  const [histState, setHistState] = useState<"idle" | "loading" | "error">("idle");
+  const [histFailedRange, setHistFailedRange] = useState<RangeKey | null>(null);
 
-  // Historical fetch whenever a non-live range is selected.
+  // Historical fetch whenever a non-live range is selected. The loading/error
+  // state is derived from which range the stored data (or failure) belongs to,
+  // so the effect never sets state synchronously.
   useEffect(() => {
     if (range === "Live") return;
     let cancelled = false;
-    setHistState("loading");
     const load = async () => {
       try {
         const res = await fetch(`/api/telemetry/history?range=${range}`, {
@@ -181,16 +180,18 @@ export default function NetworkPage() {
         });
         if (cancelled) return;
         if (res.ok) {
-          const data = (await res.json()) as { range: RangeKey; points: Point[] };
+          const data = (await res.json()) as { points?: unknown };
           if (!cancelled) {
-            setHist(data);
-            setHistState("idle");
+            // Key the result by the range we asked for, and never trust the
+            // payload's shape beyond an array of points.
+            setHist({ range, points: Array.isArray(data.points) ? (data.points as Point[]) : [] });
+            setHistFailedRange(null);
           }
         } else if (!cancelled) {
-          setHistState("error");
+          setHistFailedRange(range);
         }
       } catch {
-        if (!cancelled) setHistState("error");
+        if (!cancelled) setHistFailedRange(range);
       }
     };
     load();
@@ -198,6 +199,9 @@ export default function NetworkPage() {
       cancelled = true;
     };
   }, [range]);
+
+  const histState: "idle" | "loading" | "error" =
+    hist?.range === range ? "idle" : histFailedRange === range ? "error" : "loading";
 
   const net = snapshot?.network ?? null;
   const up = unavailable || !snapshot || !net;
@@ -214,7 +218,6 @@ export default function NetworkPage() {
   const active = net?.interfaces.find((i) => !/Virtual|Loopback|vEthernet/i.test(i.name))?.name;
 
   // Decide what the chart shows for the selected range.
-  const livePoints = liveRef.current;
   const chartPoints = range === "Live" ? livePoints : hist?.range === range ? hist.points : [];
   const chartSubtitle =
     range === "Live"
