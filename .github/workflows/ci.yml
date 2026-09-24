@@ -1,7 +1,9 @@
 name: CI
 
-# Verification only: tests and a type check. Nothing here starts the
-# scheduler, contacts GitHub, calls DeepSeek, or deploys anything.
+# Verification only: the four release gates from the README. Nothing here
+# starts the scheduler, contacts GitHub, calls DeepSeek, or deploys anything.
+# The dashboard routes are client components prerendered as static shells, so
+# the build step neither opens the database nor makes an outbound request.
 on:
   push:
   pull_request:
@@ -25,3 +27,5 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npx tsc --noEmit
+      - run: npm run lint
+      - run: npm run build

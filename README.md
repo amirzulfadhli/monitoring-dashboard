@@ -5,6 +5,36 @@ and API checks, devices, storage, security posture, GitHub activity, alerts and
 an AI-assisted brief - collected in the background and served from a local
 dashboard.
 
+Local-first: everything is collected and stored on this machine, in a SQLite
+file you own. Nothing is sent anywhere unless you configure a credential and ask
+for an AI feature.
+
+## What V1 includes
+
+- **Monitoring** - local system telemetry (CPU, memory, load), network sampling,
+  website uptime/response checks, HTTP API checks, GitHub activity, device
+  reachability, storage capacity, and local security posture
+  (firewall / Defender / listening sockets).
+- **Alerts and history** - an alert engine over threshold transitions, a unified
+  history timeline, and optional AI explanations for a single alert.
+- **Projects** - group monitored websites, APIs and repositories into projects
+  and roll their state up into per-project health.
+- **AI intelligence** - Ask DevPulse (question answering over your own
+  collected data), a grounded daily brief, and on-demand analysis.
+- **Settings** - source management for every monitored target, integration
+  status, notification preferences, retention, and dashboard customization.
+- **Runtime** - a background scheduler in the server process, centralized SQLite
+  with versioned migrations, collector health reporting, and a persistent
+  Windows launcher with optional auto-start at logon.
+
+## Screenshots
+
+No screenshots are committed to this repository yet. Run the dashboard locally
+(see [Quick start](#quick-start-development)) to see it; the UI is a compact,
+neutral developer-tool layout with a sidebar, a status topbar, and one page per
+monitoring area. Screenshots will be added here before the first public release
+announcement.
+
 ## Stack
 
 - Next.js 16 (App Router), React 19, TypeScript
@@ -113,6 +143,22 @@ recorded in that lock, never a wildcard match on `node`.
 
 ### Environment and secrets
 
+All six variables are optional; every one has a working default.
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `GITHUB_TOKEN` | _(unset)_ | GitHub API access. Without it the GitHub collector is inactive. |
+| `DEEPSEEK_API_KEY` | _(unset)_ | Enables the AI features. Without it they report a missing key. |
+| `DEVPULSE_PORT` | `3000` | Port for the production server. `-Port` wins over it. |
+| `DEVPULSE_HOST` | `127.0.0.1` | Bind address. Only an IP address or hostname is accepted. |
+| `DEVPULSE_DB_PATH` | _(unset)_ | Exact SQLite file to use. Highest precedence. |
+| `DEVPULSE_DB_DIR` | _(unset)_ | Directory holding `telemetry.db`. Second precedence. |
+
+With neither database variable set, the database is
+`<project root>\.devpulse\telemetry.db`. A relative `DEVPULSE_DB_DIR` resolves
+against the process working directory, which the launcher sets to the project
+root. See `.env.example` for the commented template.
+
 - Secrets live in `.env.local` only. It is git-ignored; `.env.example` is the
   documented template and contains no values.
 - The launcher, the generated task and the runtime log never contain a token or
@@ -161,6 +207,71 @@ port is free, and the state of the lock. Common answers:
 Desktop notifications additionally require an interactive, logged-in user
 session - they cannot appear for a process running without one. That is exactly
 why the auto-start task runs at logon in the user's own session.
+
+## AI features
+
+Four features generate text, and all four need `DEEPSEEK_API_KEY`:
+
+| Feature | Where |
+| --- | --- |
+| Ask DevPulse - questions answered from your own collected data | `/ask` |
+| Daily brief - a rolling 24-hour operational summary | `/brief` |
+| Intelligence analysis | Insights panel |
+| Alert explanation - explains one alert | Alert detail |
+
+**When DeepSeek is called.** Only when you trigger one of those four, and only
+through their own API routes (`POST /api/ask`, `/api/brief`,
+`/api/intelligence/analyze`, `/api/alerts/<id>/explain`). DevPulse makes no
+background or scheduled model calls: the scheduler never generates AI text, and
+simply loading a dashboard page never calls the model. Requests go to
+`https://api.deepseek.com` (default model `deepseek-chat`) with the collected
+context as the prompt, and only request metadata - timestamp, model, token
+counts, latency, status - is stored locally.
+
+**AI usage is not a model call.** The AI usage page reads the Claude Code
+transcripts DevPulse already has on this machine, read-only, to report local
+token usage and estimated cost. It contacts nothing.
+
+## Privacy
+
+DevPulse is local-first by design:
+
+- Monitoring data is written to a local SQLite file and served from
+  `127.0.0.1`. There is no DevPulse account, telemetry upload, or hosted backend.
+- Outbound requests are limited to what you configure: the GitHub API (with a
+  token), the websites and APIs you add, and the four AI features above when you
+  invoke them.
+- Credentials stay in `.env.local`, are never written to the runtime log or task,
+  and are stripped from the environment of every child process DevPulse spawns.
+- Collector error messages are redacted before they are stored or displayed, so
+  a token that appears in an upstream error text does not reach the database.
+
+## Known V1 limitations
+
+Accepted and documented, not hidden:
+
+- **Windows-focused runtime.** The launcher, auto-start task and the local
+  security, storage and network collectors target Windows 10/11. The dashboard
+  and the database layer are portable, but the persistent runtime path is not.
+- **No authentication.** DevPulse binds to `127.0.0.1` by default and has no
+  login. Anyone who can reach the port can read the dashboard and change its
+  settings - see [Network exposure](#network-exposure).
+- **Outbound request validation.** Requests to monitored targets are validated
+  against private/loopback ranges before connecting, but a DNS rebinding attack
+  can still change what a hostname resolves to between validation and connect
+  (a validation-to-connect TOCTOU). This is a known limitation of the redirect
+  and SSRF hardening, not a regression.
+- **Malformed percent-escapes in dynamic routes.** A URL segment containing a
+  malformed percent-escape is handled by the framework before it reaches the
+  handler. DevPulse no longer double-decodes a parameter, but the shape of the
+  framework's own response is not something the app controls.
+- **AI features require a key.** Without `DEEPSEEK_API_KEY`, Ask DevPulse, the
+  daily brief, intelligence analysis and alert explanations are unavailable.
+  Everything else keeps working.
+- **Observational, not a security product.** Security, device and storage
+  monitoring report what the local machine can observe. They are not an
+  intrusion detection system, not a vulnerability scanner, and not a substitute
+  for one.
 
 ## Layout
 
